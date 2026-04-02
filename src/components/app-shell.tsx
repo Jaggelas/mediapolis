@@ -1,4 +1,4 @@
-import { Film, History, LayoutDashboard, Settings, TimerReset } from "lucide-react";
+import { Compass, Film, History, LayoutDashboard, Settings, TimerReset } from "lucide-react";
 import { NavLink } from "@/src/components/nav-link";
 
 type AppShellProps = {
@@ -47,6 +47,10 @@ export function AppShell({
                 <NavLink href="/requests">
                   <Film className="h-4 w-4 shrink-0" />
                   Requests
+                </NavLink>
+                <NavLink href="/browse">
+                  <Compass className="h-4 w-4 shrink-0" />
+                  Browse
                 </NavLink>
                 <NavLink href="/downloads">
                   <TimerReset className="h-4 w-4 shrink-0" />

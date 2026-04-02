@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { authenticateUser } from "@/src/lib/auth";
+import { redirectResponse } from "@/src/lib/redirect-response";
 
 export const runtime = "nodejs";
 
@@ -11,8 +12,8 @@ export async function POST(request: Request) {
   const user = await authenticateUser(email, password);
 
   if (!user) {
-    return NextResponse.redirect(new URL("/login", request.url), { status: 302 });
+    return redirectResponse("/login");
   }
 
-  return NextResponse.redirect(new URL("/dashboard", request.url), { status: 302 });
+  return redirectResponse("/dashboard");
 }

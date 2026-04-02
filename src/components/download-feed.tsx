@@ -33,6 +33,11 @@ export function DownloadFeed({ initialItems }: { initialItems: DownloadFeedItem[
 
   return (
     <div className="grid gap-4">
+      {items.length === 0 ? (
+        <div className="rounded-3xl border border-dashed border-white/10 bg-slate-950/20 px-5 py-8 text-center text-sm text-slate-400">
+          No active downloads right now. Finished items disappear after they are moved into the Plex library.
+        </div>
+      ) : null}
       {items.map((item) => (
         <article
           key={item.id}

@@ -19,6 +19,7 @@ describe("media organizer", () => {
   test("builds Plex TV folder conventions", () => {
     const result = buildDestinationPath({
       title: "Sintel",
+      year: 2010,
       mediaType: MediaType.SHOW,
       sourcePath: "/downloads/Sintel.S01E02.1080p.mkv",
     });
@@ -26,7 +27,8 @@ describe("media organizer", () => {
     expect(result.library).toBe(PlexLibraryType.TV);
     expect(result.seasonNumber).toBe(1);
     expect(result.episodeNumber).toBe(2);
+    expect(result.destinationPath).toContain("Sintel (2010)");
     expect(result.destinationPath).toContain("Season 01");
-    expect(result.destinationPath).toContain("Sintel - S01E02.mkv");
+    expect(result.destinationPath).toContain("Sintel (2010) - s01e02.mkv");
   });
 });

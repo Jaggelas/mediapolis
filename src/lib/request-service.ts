@@ -18,6 +18,7 @@ type CreateRequestInput = {
   year?: number;
   notes?: string;
   userId: string;
+  tmdbId?: number;
 };
 
 const ACTIVE_DOWNLOAD_STATUSES = [
@@ -165,11 +166,13 @@ export async function createMediaRequest(input: CreateRequestInput) {
     year: input.year ?? null,
   });
   const normalizedTitle = normalizeTitle(input.title);
-  const tmdbMatch = await resolveTmdbMatch({
-    title: input.title,
-    year: input.year,
-    mediaType: input.mediaType,
-  });
+  const tmdbMatch = input.tmdbId
+    ? { tmdbId: input.tmdbId }
+    : await resolveTmdbMatch({
+        title: input.title,
+        year: input.year,
+        mediaType: input.mediaType,
+      });
 
   const request = await prisma.mediaRequest.create({
     data: {
@@ -206,6 +209,39 @@ export async function createMediaRequest(input: CreateRequestInput) {
     aiConfidence: request.aiConfidence,
   });
   return request;
+}
+
+export async function createBrowseDownload(input: {
+  title: string;
+  mediaType: MediaType;
+  year?: number;
+  userId: string;
+  tmdbId?: number;
+}) {
+  const request = await createMediaRequest({
+    title: input.title,
+    mediaType: input.mediaType,
+    year: input.year,
+    userId: input.userId,
+    tmdbId: input.tmdbId,
+    notes: "Created from browse search.",
+  });
+
+  await searchAndMatchRequest(request.id);
+
+  return prisma.mediaRequest.findUnique({
+    where: { id: request.id },
+    include: {
+      candidates: {
+        orderBy: [{ confidence: "desc" }, { createdAt: "desc" }],
+        take: 3,
+      },
+      downloads: {
+        orderBy: { updatedAt: "desc" },
+        take: 1,
+      },
+    },
+  });
 }
 
 export async function searchAndMatchRequest(requestId: string) {
@@ -896,6 +932,11 @@ export async function getDashboardSnapshot() {
 
 export async function getDownloadFeed() {
   const jobs = await prisma.downloadJob.findMany({
+    where: {
+      status: {
+        in: ACTIVE_DOWNLOAD_STATUSES,
+      },
+    },
     orderBy: { updatedAt: "desc" },
     take: 20,
     include: {

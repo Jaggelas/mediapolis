@@ -36,12 +36,13 @@ export function buildDestinationPath(input: OrganizerInput) {
 
   const episode = inferEpisode(input.sourcePath) ?? { seasonNumber: 1, episodeNumber: 1 };
   const extension = path.extname(input.sourcePath);
-  const episodeLabel = `S${String(episode.seasonNumber).padStart(2, "0")}E${String(episode.episodeNumber).padStart(2, "0")}`;
+  const showFolder = input.year ? `${safeTitle} (${input.year})` : safeTitle;
+  const episodeLabel = `s${String(episode.seasonNumber).padStart(2, "0")}e${String(episode.episodeNumber).padStart(2, "0")}`;
   const destinationPath = path.join(
     env.PLEX_TV_DIR,
-    safeTitle,
+    showFolder,
     `Season ${String(episode.seasonNumber).padStart(2, "0")}`,
-    `${safeTitle} - ${episodeLabel}${extension}`,
+    `${showFolder} - ${episodeLabel}${extension}`,
   );
 
   return {
