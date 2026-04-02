@@ -7,7 +7,7 @@ import { getEnv } from "@/src/lib/env";
 import { createAuditLog } from "@/src/lib/audit-log";
 import { planCandidateScoring, scoreCandidateWithAi } from "@/src/lib/ai-matcher";
 import { searchJackett } from "@/src/lib/jackett";
-import { buildDestinationPath, moveIntoPlexLibrary } from "@/src/lib/media-organizer";
+import { moveIntoPlexLibrary, resolveDestinationPath } from "@/src/lib/media-organizer";
 import { addMagnetToQbittorrent, addTorrentFileToQbittorrent, getQbittorrentTorrent, listQbittorrentTorrents, removeQbittorrentTorrents } from "@/src/lib/qbittorrent";
 import { determineSearchOutcomeStatus } from "@/src/lib/request-lifecycle";
 import { buildSearchQuery, inferEpisode, inferYear, normalizeTitle } from "@/src/lib/title-utils";
@@ -904,7 +904,7 @@ export async function postProcessDownload(downloadJobId: string) {
     return null;
   }
 
-  const previewDestination = buildDestinationPath({
+  const previewDestination = await resolveDestinationPath({
     title: downloadJob.request.title,
     year: downloadJob.request.year,
     mediaType: downloadJob.request.mediaType,
@@ -964,7 +964,7 @@ export async function postProcessDownload(downloadJobId: string) {
         seasonNumber: moved.seasonNumber ?? undefined,
         episodeNumber: moved.episodeNumber ?? undefined,
         tmdbId: downloadJob.request.tmdbId,
-        sourcePath: downloadJob.downloadPath,
+        sourcePath: moved.sourcePath,
         destinationPath: moved.destinationPath,
         status: MediaFileStatus.MOVED,
       },
@@ -981,7 +981,7 @@ export async function postProcessDownload(downloadJobId: string) {
         seasonNumber: moved.seasonNumber ?? undefined,
         episodeNumber: moved.episodeNumber ?? undefined,
         tmdbId: downloadJob.request.tmdbId,
-        sourcePath: downloadJob.downloadPath,
+        sourcePath: moved.sourcePath,
         destinationPath: moved.destinationPath,
         status: MediaFileStatus.MOVED,
       },
