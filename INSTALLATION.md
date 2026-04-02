@@ -345,6 +345,8 @@ JACKETT_INDEXER="all"
 QBITTORRENT_BASE_URL="http://host.docker.internal:8080"
 QBITTORRENT_USERNAME="admin"
 QBITTORRENT_PASSWORD="your_qbittorrent_password"
+APP_UID="1000"
+APP_GID="1000"
 PLEX_MOVIES_DIR="/media/movies"
 PLEX_TV_DIR="/media/tv"
 DOWNLOADS_INCOMING_DIR="/downloads/incoming"
@@ -367,6 +369,7 @@ Important value notes:
 - `JACKETT_BASE_URL` and `QBITTORRENT_BASE_URL` should point to whatever address the containers can reach.
 - When Jackett or qBittorrent run on the same Linux host as Docker, `http://host.docker.internal:<port>` works well once the app services include `extra_hosts: ["host.docker.internal:host-gateway"]`.
 - If you prefer, you can still use the Linux server LAN IP instead.
+- `APP_UID` and `APP_GID` let the app containers run as your host user for cleaner permissions on bind-mounted folders. On Linux, set them to the output of `id -u` and `id -g`.
 - `PLEX_MOVIES_DIR`, `PLEX_TV_DIR`, and `DOWNLOADS_INCOMING_DIR` are container paths.
 - Do not set `PLEX_*` or `DOWNLOADS_INCOMING_DIR` to host paths like `/home/...`; use the `HOST_*` variables for host filesystem paths instead.
 - `HOST_*` values are the actual Linux host paths.

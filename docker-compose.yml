@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    user: "${APP_UID:-100}:${APP_GID:-101}"
     env_file:
       - .env
     environment:
@@ -36,6 +37,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    user: "${APP_UID:-100}:${APP_GID:-101}"
     env_file:
       - .env
     environment:
