@@ -917,6 +917,7 @@ export async function postProcessDownload(downloadJobId: string) {
   const moved =
     existingMediaFile
       ? {
+          sourcePath: existingMediaFile.sourcePath,
           library: existingMediaFile.plexLibrary,
           destinationPath: existingMediaFile.destinationPath,
           seasonNumber: existingMediaFile.seasonNumber,
