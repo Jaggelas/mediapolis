@@ -331,6 +331,8 @@ Use this Linux-oriented template:
 DATABASE_URL="postgresql://mediapolis:mediapolis@postgres:5432/mediapolis?schema=public"
 SHADOW_DATABASE_URL="postgresql://mediapolis:mediapolis@postgres:5432/mediapolis_shadow?schema=public"
 SESSION_SECRET="replace-this-with-a-long-random-secret-at-least-32-characters"
+# Leave unset to auto-detect HTTP vs HTTPS, or set to false for plain LAN HTTP.
+# SESSION_COOKIE_SECURE="true"
 ADMIN_EMAIL="admin@example.local"
 ADMIN_PASSWORD="change-this-password"
 TMDB_API_KEY="your_tmdb_key"
@@ -360,6 +362,7 @@ Save and exit.
 Important value notes:
 
 - `DATABASE_URL` should stay pointed at `postgres` because that service runs inside Compose.
+- Leave `SESSION_COOKIE_SECURE` unset to auto-detect based on the incoming request protocol. Set it to `false` if users will only access the app over plain `http://SERVER_IP`.
 - `JACKETT_BASE_URL` and `QBITTORRENT_BASE_URL` should point to whatever address the containers can reach.
 - `PLEX_MOVIES_DIR`, `PLEX_TV_DIR`, and `DOWNLOADS_INCOMING_DIR` are container paths.
 - `HOST_*` values are the actual Linux host paths.

@@ -40,6 +40,8 @@ Update at least these values:
 - `HOST_PLEX_MOVIES_DIR`
 - `HOST_PLEX_TV_DIR`
 
+Leave `SESSION_COOKIE_SECURE` unset to auto-detect based on whether users access the app over HTTP or HTTPS. If you know the app will only be served over plain `http://SERVER_IP` on your LAN, setting it to `false` is also valid.
+
 ## 4. Build and start containers
 
 ```bash

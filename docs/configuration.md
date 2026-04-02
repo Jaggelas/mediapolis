@@ -5,7 +5,7 @@
 - `DATABASE_URL`: PostgreSQL connection string used by Prisma.
 - `SHADOW_DATABASE_URL`: Shadow DB connection string for Prisma development workflows.
 - `SESSION_SECRET`: Long random secret for signing auth cookies.
-- `SESSION_COOKIE_SECURE`: Controls the `Secure` flag on the session cookie. Set to `false` for plain HTTP LAN hosting, keep `true` for HTTPS.
+- `SESSION_COOKIE_SECURE`: Optional override for the session cookie `Secure` flag. Leave it unset to auto-detect from the current request protocol, set it to `false` for plain HTTP LAN hosting, or `true` to force HTTPS-only cookies.
 - `ADMIN_EMAIL`: Seeded admin account email.
 - `ADMIN_PASSWORD`: Seeded admin account password.
 - `NEXT_PUBLIC_APP_NAME`: Browser-visible application name.

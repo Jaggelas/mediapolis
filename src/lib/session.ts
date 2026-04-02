@@ -1,8 +1,8 @@
 import { SignJWT, jwtVerify } from "jose";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { UserRole } from "@/src/generated/prisma/enums";
-import { getEnv } from "@/src/lib/env";
+import { getEnv, type AppEnv } from "@/src/lib/env";
 
 const SESSION_COOKIE = "mediapolis_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14;
@@ -27,14 +27,45 @@ export async function createSessionToken(payload: SessionPayload) {
     .sign(getSecret());
 }
 
+export function resolveSessionCookieSecureFlag(
+  env: Pick<AppEnv, "NODE_ENV" | "SESSION_COOKIE_SECURE">,
+  requestHeaders: Pick<Headers, "get">,
+) {
+  if (env.SESSION_COOKIE_SECURE !== undefined) {
+    return env.SESSION_COOKIE_SECURE;
+  }
+
+  const forwardedProto = requestHeaders.get("x-forwarded-proto");
+
+  if (forwardedProto) {
+    return forwardedProto.split(",")[0]?.trim().toLowerCase() === "https";
+  }
+
+  const origin = requestHeaders.get("origin") ?? requestHeaders.get("referer");
+
+  if (origin) {
+    try {
+      return new URL(origin).protocol === "https:";
+    } catch {
+      // Ignore malformed headers and fall back to the runtime default.
+    }
+  }
+
+  return env.NODE_ENV === "production";
+}
+
+async function shouldUseSecureSessionCookie() {
+  const env = getEnv();
+  return resolveSessionCookieSecureFlag(env, await headers());
+}
+
 export async function setSessionCookie(payload: SessionPayload) {
   const cookieStore = await cookies();
   const token = await createSessionToken(payload);
-  const env = getEnv();
 
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: env.SESSION_COOKIE_SECURE ?? env.NODE_ENV === "production",
+    secure: await shouldUseSecureSessionCookie(),
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
