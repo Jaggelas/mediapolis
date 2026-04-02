@@ -64,6 +64,16 @@ function translateHostDownloadPathToContainer(filePath: string) {
   return normalizedPath;
 }
 
+function resolveTorrentDownloadPath(
+  torrent: { save_path: string; name: string; content_path?: string | null },
+) {
+  const rawPath = torrent.content_path?.trim()
+    ? torrent.content_path
+    : path.posix.join(normalizeContainerPath(torrent.save_path), torrent.name);
+
+  return translateHostDownloadPathToContainer(rawPath);
+}
+
 async function pathExists(filePath: string) {
   try {
     await access(filePath);
@@ -869,9 +879,7 @@ export async function syncDownloadJob(downloadJobId: string) {
     where: { id: downloadJob.id },
     data: {
       qbTorrentHash: torrent.hash,
-      downloadPath: translateHostDownloadPathToContainer(
-        path.posix.join(normalizeContainerPath(torrent.save_path), torrent.name),
-      ),
+      downloadPath: resolveTorrentDownloadPath(torrent),
       bytesDownloaded: BigInt(Math.round(torrent.total_size * torrent.progress)),
       bytesTotal: BigInt(torrent.total_size),
       progress: torrent.progress,
@@ -929,11 +937,33 @@ export async function postProcessDownload(downloadJobId: string) {
     return null;
   }
 
+  let resolvedDownloadPath = translateHostDownloadPathToContainer(downloadJob.downloadPath);
+
+  if (!(await pathExists(resolvedDownloadPath))) {
+    const refreshedTorrent = downloadJob.qbTorrentHash
+      ? await getQbittorrentTorrent(downloadJob.qbTorrentHash)
+      : null;
+
+    if (refreshedTorrent) {
+      resolvedDownloadPath = resolveTorrentDownloadPath(refreshedTorrent);
+
+      if (resolvedDownloadPath !== downloadJob.downloadPath) {
+        await prisma.downloadJob.update({
+          where: { id: downloadJob.id },
+          data: {
+            qbTorrentHash: refreshedTorrent.hash,
+            downloadPath: resolvedDownloadPath,
+          },
+        });
+      }
+    }
+  }
+
   const previewDestination = await resolveDestinationPath({
     title: downloadJob.request.title,
     year: downloadJob.request.year,
     mediaType: downloadJob.request.mediaType,
-    sourcePath: translateHostDownloadPathToContainer(downloadJob.downloadPath),
+    sourcePath: resolvedDownloadPath,
   });
 
   const existingMediaFile = downloadJob.mediaFiles[0] ?? null;
@@ -954,7 +984,7 @@ export async function postProcessDownload(downloadJobId: string) {
             title: downloadJob.request.title,
             year: downloadJob.request.year,
             mediaType: downloadJob.request.mediaType,
-            sourcePath: translateHostDownloadPathToContainer(downloadJob.downloadPath),
+            sourcePath: resolvedDownloadPath,
           });
 
   let torrentRemovalWarning: string | null = null;

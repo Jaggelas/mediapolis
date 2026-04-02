@@ -8,6 +8,7 @@ type QbTorrentInfo = {
   size: number;
   total_size: number;
   save_path: string;
+  content_path?: string;
   state: string;
   category: string;
   completion_on: number;
