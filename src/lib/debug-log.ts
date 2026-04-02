@@ -1,12 +1,3 @@
-type DebugDetails =
-  | Record<string, unknown>
-  | unknown[]
-  | string
-  | number
-  | boolean
-  | null
-  | undefined;
-
 function isDebugLoggingEnabled() {
   const raw = process.env.DEBUG_REQUEST_LOGS?.trim().toLowerCase();
 
@@ -17,7 +8,7 @@ function isDebugLoggingEnabled() {
   return ["1", "true", "yes", "on"].includes(raw);
 }
 
-function normalizeDetails(details: DebugDetails) {
+function normalizeDetails(details: unknown) {
   if (details instanceof Error) {
     return {
       name: details.name,
@@ -29,7 +20,7 @@ function normalizeDetails(details: DebugDetails) {
   return details;
 }
 
-function emit(level: "log" | "warn" | "error", scope: string, message: string, details?: DebugDetails) {
+function emit(level: "log" | "warn" | "error", scope: string, message: string, details?: unknown) {
   if (!isDebugLoggingEnabled()) {
     return;
   }
@@ -44,14 +35,14 @@ function emit(level: "log" | "warn" | "error", scope: string, message: string, d
   console[level](prefix, normalizeDetails(details));
 }
 
-export function debugLog(scope: string, message: string, details?: DebugDetails) {
+export function debugLog(scope: string, message: string, details?: unknown) {
   emit("log", scope, message, details);
 }
 
-export function debugWarn(scope: string, message: string, details?: DebugDetails) {
+export function debugWarn(scope: string, message: string, details?: unknown) {
   emit("warn", scope, message, details);
 }
 
-export function debugError(scope: string, message: string, details?: DebugDetails) {
+export function debugError(scope: string, message: string, details?: unknown) {
   emit("error", scope, message, details);
 }
