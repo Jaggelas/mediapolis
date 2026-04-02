@@ -1,0 +1,70 @@
+services:
+  app-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    command: >
+      sh -c "npm run prisma:generate &&
+      npm run start"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - downloads_incoming:${DOWNLOADS_INCOMING_DIR:-/downloads/incoming}
+      - media_movies:${PLEX_MOVIES_DIR:-/media/movies}
+      - media_tv:${PLEX_TV_DIR:-/media/tv}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/health').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  app-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    command: >
+      sh -c "npm run prisma:generate &&
+      npm run start:worker"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - downloads_incoming:${DOWNLOADS_INCOMING_DIR:-/downloads/incoming}
+      - media_movies:${PLEX_MOVIES_DIR:-/media/movies}
+      - media_tv:${PLEX_TV_DIR:-/media/tv}
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mediapolis
+      POSTGRES_PASSWORD: mediapolis
+      POSTGRES_DB: mediapolis
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediapolis -d mediapolis"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  downloads_incoming:
+  media_movies:
+  media_tv:

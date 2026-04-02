@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum MediaType {
+  MOVIE
+  SHOW
+}
+
+enum RequestStatus {
+  REQUESTED
+  SEARCHING
+  REVIEW
+  MATCHED
+  DOWNLOADING
+  ORGANIZING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum CandidateStatus {
+  PENDING
+  AUTO_SELECTED
+  APPROVED
+  REJECTED
+}
+
+enum DownloadSource {
+  JACKETT
+  MAGNET
+  TORRENT_UPLOAD
+}
+
+enum DownloadStatus {
+  QUEUED
+  MATCHED
+  DOWNLOADING
+  COMPLETED
+  ORGANIZING
+  FAILED
+  CANCELLED
+}
+
+enum MediaFileStatus {
+  PENDING
+  MOVED
+  NEEDS_REVIEW
+}
+
+enum PlexLibraryType {
+  MOVIES
+  TV
+}
+
+model User {
+  id             String         @id @default(cuid())
+  email          String         @unique
+  displayName    String
+  passwordHash   String
+  role           UserRole       @default(USER)
+  requests       MediaRequest[]
+  auditLogs      AuditLog[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([role])
+}
+
+model MediaRequest {
+  id                    String             @id @default(cuid())
+  requestedById         String
+  title                 String
+  normalizedTitle       String
+  year                  Int?
+  mediaType             MediaType
+  status                RequestStatus      @default(REQUESTED)
+  notes                 String?
+  qualityProfile        String?
+  tmdbId                Int?
+  searchQuery           String?
+  aiConfidence          Float?
+  aiReason              String?
+  lastSearchedAt        DateTime?
+  nextSearchAt          DateTime?
+  autoDownloadThreshold Float?
+  requestedBy           User               @relation(fields: [requestedById], references: [id], onDelete: Cascade)
+  candidates            CandidateTorrent[]
+  downloads             DownloadJob[]
+  mediaFiles            MediaFile[]
+  auditLogs             AuditLog[]
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([requestedById])
+  @@index([status, nextSearchAt])
+  @@index([mediaType, title, year])
+}
+
+model CandidateTorrent {
+  id           String          @id @default(cuid())
+  requestId    String
+  source       String
+  indexerKey   String?
+  title        String
+  magnetUri    String?
+  torrentUrl   String?
+  infoHash     String?
+  sizeBytes    BigInt?
+  seeders      Int?
+  peers        Int?
+  confidence   Float?
+  reason       String?
+  status       CandidateStatus @default(PENDING)
+  rawPayload   Json?
+  request      MediaRequest    @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  downloadJobs DownloadJob[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([requestId, confidence])
+  @@index([infoHash])
+  @@index([status])
+}
+
+model DownloadJob {
+  id                 String          @id @default(cuid())
+  requestId          String?
+  candidateId        String?
+  source             DownloadSource
+  status             DownloadStatus  @default(QUEUED)
+  qbTorrentHash      String?         @unique
+  qbCategory         String?
+  inputName          String?
+  inputMagnet        String?
+  originalFileName   String?
+  downloadRoot       String?
+  downloadPath       String?
+  bytesTotal         BigInt?
+  bytesDownloaded    BigInt?         @default(0)
+  progress           Float?          @default(0)
+  errorMessage       String?
+  completedAt        DateTime?
+  request            MediaRequest?   @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  candidate          CandidateTorrent? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  mediaFiles         MediaFile[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([requestId, status])
+  @@index([candidateId])
+  @@index([status, updatedAt])
+}
+
+model MediaFile {
+  id            String          @id @default(cuid())
+  requestId     String?
+  downloadJobId String
+  mediaType     MediaType
+  plexLibrary   PlexLibraryType
+  title         String
+  year          Int?
+  seasonNumber  Int?
+  episodeNumber Int?
+  tmdbId        Int?
+  sourcePath    String
+  destinationPath String
+  status        MediaFileStatus @default(PENDING)
+  request       MediaRequest?   @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  downloadJob   DownloadJob     @relation(fields: [downloadJobId], references: [id], onDelete: Cascade)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([downloadJobId])
+  @@index([plexLibrary, status])
+  @@index([title, year])
+}
+
+model IndexerProfile {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  indexerKey      String   @unique
+  enabled         Boolean  @default(true)
+  categoryHints   Json?
+  lastSeenAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([enabled])
+}
+
+model AuditLog {
+  id             String        @id @default(cuid())
+  userId         String?
+  requestId      String?
+  action         String
+  entityType     String
+  entityId       String
+  details        Json?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  request        MediaRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  createdAt      DateTime      @default(now())
+
+  @@index([userId])
+  @@index([requestId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

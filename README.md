@@ -1,36 +1,78 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Mediapolis
 
-## Getting Started
+Mediapolis is a Docker-first Ubuntu media request server built with Next.js, Prisma, PostgreSQL, qBittorrent, and Plex-style media organization.
 
-First, run the development server:
+## Features
+
+- LAN-accessible login for phones and desktops.
+- Media request queue with periodic lawful indexer searching through Jackett.
+- AI-assisted release title matching with review queue fallback.
+- Manual torrent file and magnet import flow.
+- qBittorrent download orchestration and progress tracking.
+- Automatic Plex-compatible movie and TV folder placement.
+- Responsive dashboard, requests, downloads, and settings screens.
+
+## Stack
+
+- Next.js App Router with TypeScript
+- Prisma ORM + PostgreSQL
+- Database-driven polling worker
+- qBittorrent Web API integration
+- TMDB metadata lookup
+- OpenAI-compatible release scoring fallback
+
+## Local Development
+
+1. Copy `.env.example` to `.env` and adjust values for your machine.
+2. Generate the Prisma client:
+
+```bash
+npm run prisma:generate
+```
+
+3. Start the web app and worker in separate terminals:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev:worker
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+4. Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Docker Deployment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Use Docker Compose as the primary runtime:
 
-## Learn More
+```bash
+docker compose up -d --build
+```
 
-To learn more about Next.js, take a look at the following resources:
+For Ubuntu bind-mount deployment:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Detailed setup steps live in `docs/ubuntu-deploy.md` and `docs/configuration.md`.
 
-## Deploy on Vercel
+## Database
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Prisma schema: `prisma/schema.prisma`
+- Baseline migration: `prisma/migrations/20260402064500_init_media_server/migration.sql`
+- Seed admin user:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run prisma:seed
+```
+
+## Testing
+
+```bash
+npm run lint
+npm run test
+npm run test:e2e
+```
+
+## Important Scope Note
+
+This project is intended for lawful/public-domain torrent discovery or user-supplied torrent/magnet imports. Configure Jackett only with indexers you are permitted to use.

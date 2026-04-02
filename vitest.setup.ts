@@ -1,0 +1,23 @@
+process.env.DATABASE_URL ??= "postgresql://mediapolis:mediapolis@localhost:5432/mediapolis?schema=public";
+process.env.SHADOW_DATABASE_URL ??=
+  "postgresql://mediapolis:mediapolis@localhost:5432/mediapolis_shadow?schema=public";
+process.env.SESSION_SECRET ??= "development-session-secret-change-me-now";
+process.env.ADMIN_EMAIL ??= "admin@mediapolis.local";
+process.env.ADMIN_PASSWORD ??= "change-me-now";
+process.env.TMDB_API_KEY ??= "";
+process.env.OPENAI_API_KEY ??= "";
+process.env.OPENAI_MODEL ??= "gpt-4.1-mini";
+process.env.JACKETT_BASE_URL ??= "http://localhost:9117";
+process.env.JACKETT_API_KEY ??= "";
+process.env.JACKETT_INDEXER ??= "all";
+process.env.QBITTORRENT_BASE_URL ??= "http://localhost:8080";
+process.env.QBITTORRENT_USERNAME ??= "admin";
+process.env.QBITTORRENT_PASSWORD ??= "adminadmin";
+process.env.PLEX_MOVIES_DIR ??= "/media/movies";
+process.env.PLEX_TV_DIR ??= "/media/tv";
+process.env.DOWNLOADS_INCOMING_DIR ??= "/downloads/incoming";
+process.env.AUTO_DOWNLOAD_THRESHOLD ??= "0.86";
+process.env.SEARCH_INTERVAL_MINUTES ??= "15";
+process.env.POLL_INTERVAL_SECONDS ??= "30";
+process.env.ALLOW_AUTO_DOWNLOADS ??= "true";
+process.env.NEXT_PUBLIC_APP_NAME ??= "Mediapolis";

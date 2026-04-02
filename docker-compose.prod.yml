@@ -1,0 +1,17 @@
+services:
+  app-web:
+    ports:
+      - "80:3000"
+    volumes:
+      - ${HOST_DOWNLOADS_INCOMING:-/srv/mediapolis/downloads/incoming}:${DOWNLOADS_INCOMING_DIR:-/downloads/incoming}
+      - ${HOST_PLEX_MOVIES_DIR:-/srv/mediapolis/media/movies}:${PLEX_MOVIES_DIR:-/media/movies}
+      - ${HOST_PLEX_TV_DIR:-/srv/mediapolis/media/tv}:${PLEX_TV_DIR:-/media/tv}
+
+  app-worker:
+    volumes:
+      - ${HOST_DOWNLOADS_INCOMING:-/srv/mediapolis/downloads/incoming}:${DOWNLOADS_INCOMING_DIR:-/downloads/incoming}
+      - ${HOST_PLEX_MOVIES_DIR:-/srv/mediapolis/media/movies}:${PLEX_MOVIES_DIR:-/media/movies}
+      - ${HOST_PLEX_TV_DIR:-/srv/mediapolis/media/tv}:${PLEX_TV_DIR:-/media/tv}
+
+  postgres:
+    ports: []
