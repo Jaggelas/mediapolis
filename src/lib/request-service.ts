@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises";
 import path from "node:path";
 import { CandidateStatus, DownloadSource, DownloadStatus, MediaFileStatus, MediaType, RequestStatus } from "@/src/generated/prisma/enums";
 import { prisma } from "@/src/lib/db";
@@ -38,6 +39,15 @@ function buildQbCategory(requestId: string) {
 
 function buildNextSearchAt(searchIntervalMinutes: number) {
   return new Date(Date.now() + searchIntervalMinutes * 60 * 1000);
+}
+
+async function pathExists(filePath: string) {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function findActiveDownloadJobForRequest(requestId: string) {
@@ -840,7 +850,7 @@ export async function syncDownloadJob(downloadJobId: string) {
       bytesDownloaded: BigInt(Math.round(torrent.total_size * torrent.progress)),
       bytesTotal: BigInt(torrent.total_size),
       progress: torrent.progress,
-      status: completed ? DownloadStatus.COMPLETED : DownloadStatus.DOWNLOADING,
+      status: completed ? DownloadStatus.ORGANIZING : DownloadStatus.DOWNLOADING,
       completedAt: completed ? new Date() : null,
     },
   });
@@ -872,6 +882,10 @@ export async function postProcessDownload(downloadJobId: string) {
     where: { id: downloadJobId },
     include: {
       request: true,
+      mediaFiles: {
+        orderBy: { createdAt: "asc" },
+        take: 1,
+      },
     },
   });
 
@@ -897,12 +911,25 @@ export async function postProcessDownload(downloadJobId: string) {
     sourcePath: downloadJob.downloadPath,
   });
 
-  const moved = await moveIntoPlexLibrary({
-    title: downloadJob.request.title,
-    year: downloadJob.request.year,
-    mediaType: downloadJob.request.mediaType,
-    sourcePath: downloadJob.downloadPath,
-  });
+  const existingMediaFile = downloadJob.mediaFiles[0] ?? null;
+  const destinationAlreadyExists = await pathExists(previewDestination.destinationPath);
+
+  const moved =
+    existingMediaFile
+      ? {
+          library: existingMediaFile.plexLibrary,
+          destinationPath: existingMediaFile.destinationPath,
+          seasonNumber: existingMediaFile.seasonNumber,
+          episodeNumber: existingMediaFile.episodeNumber,
+        }
+      : destinationAlreadyExists
+        ? previewDestination
+        : await moveIntoPlexLibrary({
+            title: downloadJob.request.title,
+            year: downloadJob.request.year,
+            mediaType: downloadJob.request.mediaType,
+            sourcePath: downloadJob.downloadPath,
+          });
 
   let torrentRemovalWarning: string | null = null;
 
@@ -927,22 +954,39 @@ export async function postProcessDownload(downloadJobId: string) {
     });
   }
 
-  await prisma.mediaFile.create({
-    data: {
-      requestId: downloadJob.request.id,
-      downloadJobId: downloadJob.id,
-      mediaType: downloadJob.request.mediaType,
-      plexLibrary: moved.library,
-      title: downloadJob.request.title,
-      year: downloadJob.request.year,
-      seasonNumber: moved.seasonNumber ?? undefined,
-      episodeNumber: moved.episodeNumber ?? undefined,
-      tmdbId: downloadJob.request.tmdbId,
-      sourcePath: downloadJob.downloadPath,
-      destinationPath: previewDestination.destinationPath,
-      status: MediaFileStatus.MOVED,
-    },
-  });
+  if (existingMediaFile) {
+    await prisma.mediaFile.update({
+      where: { id: existingMediaFile.id },
+      data: {
+        plexLibrary: moved.library,
+        title: downloadJob.request.title,
+        year: downloadJob.request.year,
+        seasonNumber: moved.seasonNumber ?? undefined,
+        episodeNumber: moved.episodeNumber ?? undefined,
+        tmdbId: downloadJob.request.tmdbId,
+        sourcePath: downloadJob.downloadPath,
+        destinationPath: moved.destinationPath,
+        status: MediaFileStatus.MOVED,
+      },
+    });
+  } else {
+    await prisma.mediaFile.create({
+      data: {
+        requestId: downloadJob.request.id,
+        downloadJobId: downloadJob.id,
+        mediaType: downloadJob.request.mediaType,
+        plexLibrary: moved.library,
+        title: downloadJob.request.title,
+        year: downloadJob.request.year,
+        seasonNumber: moved.seasonNumber ?? undefined,
+        episodeNumber: moved.episodeNumber ?? undefined,
+        tmdbId: downloadJob.request.tmdbId,
+        sourcePath: downloadJob.downloadPath,
+        destinationPath: moved.destinationPath,
+        status: MediaFileStatus.MOVED,
+      },
+    });
+  }
 
   await prisma.downloadJob.update({
     where: { id: downloadJob.id },

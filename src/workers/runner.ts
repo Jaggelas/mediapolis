@@ -65,14 +65,13 @@ async function processActiveDownloads() {
 async function processCompletedDownloads() {
   const downloads = await prisma.downloadJob.findMany({
     where: {
-      status: DownloadStatus.COMPLETED,
+      status: {
+        in: [DownloadStatus.COMPLETED, DownloadStatus.ORGANIZING],
+      },
       request: {
         is: {
           status: RequestStatus.ORGANIZING,
         },
-      },
-      mediaFiles: {
-        none: {},
       },
     },
     select: { id: true },

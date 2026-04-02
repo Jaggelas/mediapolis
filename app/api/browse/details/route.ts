@@ -12,6 +12,32 @@ const browseDetailsSchema = z.object({
   mediaType: z.nativeEnum(MediaType),
 });
 
+const resolutionMatchers = [
+  { label: "2160p", pattern: /\b(?:2160p|4k|uhd)\b/i },
+  { label: "1440p", pattern: /\b1440p\b/i },
+  { label: "1080p", pattern: /\b1080p\b/i },
+  { label: "720p", pattern: /\b720p\b/i },
+  { label: "576p", pattern: /\b576p\b/i },
+  { label: "480p", pattern: /\b480p\b/i },
+] as const;
+
+function getAvailableResolutions(titles: string[]) {
+  const resolutions = new Set<string>();
+
+  for (const title of titles) {
+    for (const matcher of resolutionMatchers) {
+      if (matcher.pattern.test(title)) {
+        resolutions.add(matcher.label);
+        break;
+      }
+    }
+  }
+
+  return resolutionMatchers
+    .map((matcher) => matcher.label)
+    .filter((resolution) => resolutions.has(resolution));
+}
+
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
@@ -44,6 +70,7 @@ export async function GET(request: Request) {
           available: boolean;
           candidateCount: number;
           maxSeeders: number;
+          resolutions: string[];
           query: string;
           error?: string;
         }
@@ -57,6 +84,7 @@ export async function GET(request: Request) {
         available: candidates.length > 0,
         candidateCount: candidates.length,
         maxSeeders: Math.max(0, ...candidates.map((candidate) => candidate.seeders ?? 0)),
+        resolutions: getAvailableResolutions(candidates.map((candidate) => candidate.title)),
         query,
       };
     } catch (availabilityError) {
@@ -68,6 +96,7 @@ export async function GET(request: Request) {
         available: false,
         candidateCount: 0,
         maxSeeders: 0,
+        resolutions: [],
         query,
         error: message,
       };

@@ -52,6 +52,7 @@ type BrowseDetails = {
     available: boolean;
     candidateCount: number;
     maxSeeders: number;
+    resolutions: string[];
     query: string;
     error?: string;
   };
@@ -957,6 +958,19 @@ export function BrowseSearch() {
                             Up to {details.torrentAvailability.maxSeeders} seeders
                           </div>
                         ) : null}
+                        {!details.torrentAvailability.error &&
+                        details.torrentAvailability.resolutions.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {details.torrentAvailability.resolutions.map((resolution) => (
+                              <span
+                                key={resolution}
+                                className="rounded-full border border-white/10 bg-white/8 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-200"
+                              >
+                                {resolution}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -1024,6 +1038,24 @@ export function BrowseSearch() {
                             ? `Mediapolis found ${details.torrentAvailability.candidateCount} torrent result${details.torrentAvailability.candidateCount === 1 ? "" : "s"} for this title right now.`
                             : "Mediapolis did not find any torrent results for this title at the moment."}
                       </p>
+                      {!details.torrentAvailability.error &&
+                      details.torrentAvailability.resolutions.length > 0 ? (
+                        <div className="mt-4">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                            Resolutions available
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {details.torrentAvailability.resolutions.map((resolution) => (
+                              <span
+                                key={resolution}
+                                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200"
+                              >
+                                {resolution}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                       <p className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-500">
                         Query used: {details.torrentAvailability.query}
                       </p>
