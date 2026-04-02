@@ -9,6 +9,7 @@ const envSchema = z.object({
 	DATABASE_URL: z.string().min(1),
 	SHADOW_DATABASE_URL: z.string().min(1),
 	SESSION_SECRET: z.string().min(32),
+	SESSION_COOKIE_SECURE: z.coerce.boolean().optional(),
 	ADMIN_EMAIL: z.string().email(),
 	ADMIN_PASSWORD: z.string().min(8),
 	TMDB_API_KEY: z.string().optional().default(''),

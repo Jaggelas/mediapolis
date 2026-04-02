@@ -5,7 +5,7 @@ export default async function LoginPage() {
   const session = await getSession();
 
   if (session) {
-    redirect("/dashboard");
+    redirect("/browse");
   }
 
   return (
@@ -14,8 +14,8 @@ export default async function LoginPage() {
       <div className="pointer-events-none absolute -left-28 top-24 h-56 w-56 rounded-full bg-indigo-500/18 blur-3xl" />
       <div className="pointer-events-none absolute -right-24 top-40 h-64 w-64 rounded-full bg-sky-400/18 blur-3xl" />
 
-      <div className="relative grid w-full max-w-5xl gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-        <section className="rounded-4xl border border-white/10 bg-white/6 p-6 shadow-[0_26px_80px_rgba(2,6,23,0.42)] backdrop-blur-xl sm:p-8 lg:p-10">
+      <div className="relative grid w-full max-w-md gap-6 lg:max-w-5xl lg:grid-cols-[1.05fr_0.95fr]">
+        <section className="hidden rounded-4xl border border-white/10 bg-white/6 p-6 shadow-[0_26px_80px_rgba(2,6,23,0.42)] backdrop-blur-xl lg:block lg:p-10">
           <p className="text-[11px] font-semibold uppercase tracking-[0.38em] text-sky-300 sm:text-xs">
             Mediapolis
           </p>
@@ -50,14 +50,17 @@ export default async function LoginPage() {
         </section>
 
         <section className="rounded-4xl border border-white/10 bg-slate-950/55 p-6 shadow-[0_26px_80px_rgba(2,6,23,0.42)] backdrop-blur-xl sm:p-8 lg:p-10">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.38em] text-sky-300 lg:hidden">
+            Mediapolis
+          </p>
+          <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400 lg:mt-0">
             Local network access
           </p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white">
             Sign in to continue
           </h2>
           <p className="mt-3 text-sm leading-6 text-slate-300">
-            Use the admin account seeded from your Docker environment variables.
+            Use the seeded admin account or any user added from the Settings page.
           </p>
 
           <form action="/api/auth/login" method="post" className="mt-8 grid gap-4">

@@ -20,7 +20,7 @@ export function AppShell({
       <div className="pointer-events-none absolute -right-40 top-24 -z-10 h-72 w-72 rounded-full bg-indigo-500/18 blur-3xl" />
       <div className="pointer-events-none absolute -left-32 top-52 -z-10 h-64 w-64 rounded-full bg-sky-400/12 blur-3xl" />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 pb-8 pt-3 sm:px-6 sm:pt-4 lg:px-8">
+      <div className="flex min-h-screen w-full flex-col px-2 pb-8 pt-3 sm:px-3 sm:pt-4">
         <header className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/6 p-4 shadow-[0_24px_80px_rgba(2,6,23,0.32)] backdrop-blur-xl sm:p-5">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(135deg,rgba(56,189,248,0.14),transparent_55%)]" />
           <div className="pointer-events-none absolute -right-8 top-0 h-24 w-24 rounded-full bg-white/10 blur-2xl" />

@@ -30,10 +30,11 @@ export async function createSessionToken(payload: SessionPayload) {
 export async function setSessionCookie(payload: SessionPayload) {
   const cookieStore = await cookies();
   const token = await createSessionToken(payload);
+  const env = getEnv();
 
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: getEnv().NODE_ENV === "production",
+    secure: env.SESSION_COOKIE_SECURE ?? env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
@@ -75,7 +76,7 @@ export async function requireAdminSession() {
   const session = await requireSession();
 
   if (session.role !== UserRole.ADMIN) {
-    redirect("/dashboard");
+    redirect("/browse");
   }
 
   return session;

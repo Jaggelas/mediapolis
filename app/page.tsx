@@ -3,5 +3,5 @@ import { getSession } from "@/src/lib/session";
 
 export default async function Home() {
   const session = await getSession();
-  redirect(session ? "/dashboard" : "/login");
+  redirect(session ? "/browse" : "/login");
 }

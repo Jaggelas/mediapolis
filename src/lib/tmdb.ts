@@ -35,6 +35,24 @@ export type TmdbCatalogPage = {
   totalPages: number;
 };
 
+export type TmdbTitleDetails = {
+  tmdbId: number;
+  title: string;
+  year?: number;
+  mediaType: MediaType;
+  overview?: string;
+  posterUrl?: string;
+  backdropUrl?: string;
+  genres: TmdbGenre[];
+  voteAverage?: number;
+  runtimeMinutes?: number;
+  numberOfSeasons?: number;
+  numberOfEpisodes?: number;
+  status?: string;
+  tagline?: string;
+  homepage?: string;
+};
+
 type TmdbResponse = {
   page?: number;
   total_pages?: number;
@@ -59,6 +77,29 @@ type TmdbGenreResponse = {
     id: number;
     name: string;
   }>;
+};
+
+type TmdbTitleDetailsResponse = {
+  id: number;
+  title?: string;
+  name?: string;
+  release_date?: string;
+  first_air_date?: string;
+  overview?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  genres?: Array<{
+    id: number;
+    name: string;
+  }>;
+  vote_average?: number;
+  runtime?: number | null;
+  episode_run_time?: number[];
+  number_of_seasons?: number;
+  number_of_episodes?: number;
+  status?: string;
+  tagline?: string;
+  homepage?: string;
 };
 
 const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p";
@@ -207,6 +248,46 @@ export async function discoverTmdbCatalog(input: {
     page: payload?.page ?? page,
     totalPages: Math.max(1, payload?.total_pages ?? 1),
   } satisfies TmdbCatalogPage;
+}
+
+export async function getTmdbTitleDetails(input: {
+  tmdbId: number;
+  mediaType: MediaType;
+}) {
+  const payload = await fetchTmdbResponse<TmdbTitleDetailsResponse>(
+    `${getTmdbMediaPath(input.mediaType)}/${input.tmdbId}`,
+    new URLSearchParams(),
+  );
+
+  if (!payload) {
+    return null;
+  }
+
+  const runtimeMinutes =
+    input.mediaType === MediaType.MOVIE
+      ? payload.runtime ?? undefined
+      : payload.episode_run_time?.find((value) => value > 0) ?? undefined;
+
+  return {
+    tmdbId: payload.id,
+    title: payload.title ?? payload.name ?? "Untitled",
+    year: parseYear(payload.release_date ?? payload.first_air_date),
+    mediaType: input.mediaType,
+    overview: payload.overview,
+    posterUrl: buildTmdbImageUrl("w342", payload.poster_path),
+    backdropUrl: buildTmdbImageUrl("w780", payload.backdrop_path),
+    genres: (payload.genres ?? []).map((genre) => ({
+      id: genre.id,
+      name: genre.name,
+    })),
+    voteAverage: payload.vote_average,
+    runtimeMinutes,
+    numberOfSeasons: payload.number_of_seasons,
+    numberOfEpisodes: payload.number_of_episodes,
+    status: payload.status,
+    tagline: payload.tagline,
+    homepage: payload.homepage,
+  } satisfies TmdbTitleDetails;
 }
 
 export async function resolveTmdbMatch(input: {

@@ -15,5 +15,5 @@ export async function POST(request: Request) {
     return redirectResponse("/login");
   }
 
-  return redirectResponse("/dashboard");
+  return redirectResponse("/browse");
 }
