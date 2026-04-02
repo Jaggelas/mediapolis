@@ -41,6 +41,29 @@ function buildNextSearchAt(searchIntervalMinutes: number) {
   return new Date(Date.now() + searchIntervalMinutes * 60 * 1000);
 }
 
+function normalizeContainerPath(filePath: string) {
+  return path.posix.normalize(filePath.replaceAll("\\", "/"));
+}
+
+function translateHostDownloadPathToContainer(filePath: string) {
+  const env = getEnv();
+  const normalizedPath = normalizeContainerPath(filePath);
+  const normalizedHostRoot = env.HOST_DOWNLOADS_INCOMING
+    ? normalizeContainerPath(env.HOST_DOWNLOADS_INCOMING)
+    : "";
+  const normalizedContainerRoot = normalizeContainerPath(env.DOWNLOADS_INCOMING_DIR);
+
+  if (
+    normalizedHostRoot &&
+    (normalizedPath === normalizedHostRoot || normalizedPath.startsWith(`${normalizedHostRoot}/`))
+  ) {
+    const suffix = normalizedPath.slice(normalizedHostRoot.length);
+    return `${normalizedContainerRoot}${suffix}`;
+  }
+
+  return normalizedPath;
+}
+
 async function pathExists(filePath: string) {
   try {
     await access(filePath);
@@ -846,7 +869,9 @@ export async function syncDownloadJob(downloadJobId: string) {
     where: { id: downloadJob.id },
     data: {
       qbTorrentHash: torrent.hash,
-      downloadPath: path.join(torrent.save_path, torrent.name),
+      downloadPath: translateHostDownloadPathToContainer(
+        path.posix.join(normalizeContainerPath(torrent.save_path), torrent.name),
+      ),
       bytesDownloaded: BigInt(Math.round(torrent.total_size * torrent.progress)),
       bytesTotal: BigInt(torrent.total_size),
       progress: torrent.progress,
@@ -908,7 +933,7 @@ export async function postProcessDownload(downloadJobId: string) {
     title: downloadJob.request.title,
     year: downloadJob.request.year,
     mediaType: downloadJob.request.mediaType,
-    sourcePath: downloadJob.downloadPath,
+    sourcePath: translateHostDownloadPathToContainer(downloadJob.downloadPath),
   });
 
   const existingMediaFile = downloadJob.mediaFiles[0] ?? null;
@@ -929,7 +954,7 @@ export async function postProcessDownload(downloadJobId: string) {
             title: downloadJob.request.title,
             year: downloadJob.request.year,
             mediaType: downloadJob.request.mediaType,
-            sourcePath: downloadJob.downloadPath,
+            sourcePath: translateHostDownloadPathToContainer(downloadJob.downloadPath),
           });
 
   let torrentRemovalWarning: string | null = null;
