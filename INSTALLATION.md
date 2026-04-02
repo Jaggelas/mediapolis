@@ -51,7 +51,8 @@ Important networking rule:
 
 - If qBittorrent or Jackett are outside the same Compose stack, do not blindly use `localhost`.
 - From inside Docker, `localhost` means the container itself.
-- Use the server LAN IP or `host.docker.internal` on Windows when appropriate.
+- Use the server LAN IP or `host.docker.internal` when appropriate.
+- On Linux Docker hosts, `host.docker.internal` usually requires `extra_hosts: ["host.docker.internal:host-gateway"]` on the app services.
 
 ## Directory Layout Used In This Guide
 
@@ -338,10 +339,10 @@ ADMIN_PASSWORD="change-this-password"
 TMDB_API_KEY="your_tmdb_key"
 OPENAI_API_KEY="your_openai_key_or_leave_blank"
 OPENAI_MODEL="gpt-4.1-mini"
-JACKETT_BASE_URL="http://192.168.1.50:9117"
+JACKETT_BASE_URL="http://host.docker.internal:9117"
 JACKETT_API_KEY="your_jackett_api_key"
 JACKETT_INDEXER="all"
-QBITTORRENT_BASE_URL="http://192.168.1.50:8080"
+QBITTORRENT_BASE_URL="http://host.docker.internal:8080"
 QBITTORRENT_USERNAME="admin"
 QBITTORRENT_PASSWORD="your_qbittorrent_password"
 PLEX_MOVIES_DIR="/media/movies"
@@ -364,6 +365,8 @@ Important value notes:
 - `DATABASE_URL` should stay pointed at `postgres` because that service runs inside Compose.
 - Leave `SESSION_COOKIE_SECURE` unset to auto-detect based on the incoming request protocol. Set it to `false` if users will only access the app over plain `http://SERVER_IP`.
 - `JACKETT_BASE_URL` and `QBITTORRENT_BASE_URL` should point to whatever address the containers can reach.
+- When Jackett or qBittorrent run on the same Linux host as Docker, `http://host.docker.internal:<port>` works well once the app services include `extra_hosts: ["host.docker.internal:host-gateway"]`.
+- If you prefer, you can still use the Linux server LAN IP instead.
 - `PLEX_MOVIES_DIR`, `PLEX_TV_DIR`, and `DOWNLOADS_INCOMING_DIR` are container paths.
 - `HOST_*` values are the actual Linux host paths.
 
@@ -769,8 +772,8 @@ In Jackett:
 3. Copy the API key.
 4. Put that key into `JACKETT_API_KEY`.
 5. Set `JACKETT_BASE_URL` to the address the Mediapolis containers can reach.
-6. Use `http://host.docker.internal:9117` when Jackett runs on the Windows host beside Docker Desktop.
-7. Use `http://SERVER_IP:9117` when Jackett runs on a Linux host or on another machine on your LAN.
+6. Use `http://host.docker.internal:9117` when Jackett runs on the Docker host and your Compose services include the `host-gateway` mapping.
+7. Use `http://SERVER_IP:9117` when Jackett runs on another machine on your LAN, or when you prefer using the Linux host LAN IP directly.
 8. Keep note of the indexer slug you want in `JACKETT_INDEXER`, or use `all` to search every enabled indexer.
 
 ## Configure Plex Correctly
@@ -895,4 +898,3 @@ Windows paths in this guide:
 - `README.md`
 - `docs/ubuntu-deploy.md`
 - `docs/configuration.md`
-

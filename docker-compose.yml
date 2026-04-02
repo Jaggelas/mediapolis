@@ -10,6 +10,8 @@ services:
     command: npm run start
     ports:
       - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,6 +35,8 @@ services:
     environment:
       NODE_ENV: production
     command: npm run start:worker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
