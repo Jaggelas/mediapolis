@@ -287,7 +287,7 @@ Create the app folder:
 ```bash
 sudo mkdir -p /opt/mediapolis
 sudo chown -R $USER:$USER /opt/mediapolis
-cd /opt/mediapolis
+cd /opt/
 ```
 
 Clone the repository:
@@ -892,3 +892,4 @@ Windows paths in this guide:
 - `README.md`
 - `docs/ubuntu-deploy.md`
 - `docs/configuration.md`
+
