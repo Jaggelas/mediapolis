@@ -7,9 +7,7 @@ services:
       - .env
     environment:
       NODE_ENV: production
-    command: >
-      sh -c "npm run prisma:generate &&
-      npm run start"
+    command: npm run start
     ports:
       - "3000:3000"
     depends_on:
@@ -34,9 +32,7 @@ services:
       - .env
     environment:
       NODE_ENV: production
-    command: >
-      sh -c "npm run prisma:generate &&
-      npm run start:worker"
+    command: npm run start:worker
     depends_on:
       postgres:
         condition: service_healthy
