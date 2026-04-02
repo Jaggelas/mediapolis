@@ -16,9 +16,15 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - downloads_incoming:${DOWNLOADS_INCOMING_DIR:-/downloads/incoming}
-      - media_movies:${PLEX_MOVIES_DIR:-/media/movies}
-      - media_tv:${PLEX_TV_DIR:-/media/tv}
+      - type: volume
+        source: downloads_incoming
+        target: ${DOWNLOADS_INCOMING_DIR:-/downloads/incoming}
+      - type: volume
+        source: media_movies
+        target: ${PLEX_MOVIES_DIR:-/media/movies}
+      - type: volume
+        source: media_tv
+        target: ${PLEX_TV_DIR:-/media/tv}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/health').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))\""]
       interval: 30s
@@ -41,9 +47,15 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - downloads_incoming:${DOWNLOADS_INCOMING_DIR:-/downloads/incoming}
-      - media_movies:${PLEX_MOVIES_DIR:-/media/movies}
-      - media_tv:${PLEX_TV_DIR:-/media/tv}
+      - type: volume
+        source: downloads_incoming
+        target: ${DOWNLOADS_INCOMING_DIR:-/downloads/incoming}
+      - type: volume
+        source: media_movies
+        target: ${PLEX_MOVIES_DIR:-/media/movies}
+      - type: volume
+        source: media_tv
+        target: ${PLEX_TV_DIR:-/media/tv}
     restart: unless-stopped
 
   postgres:
@@ -55,7 +67,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - type: volume
+        source: postgres_data
+        target: /var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mediapolis -d mediapolis"]
       interval: 10s

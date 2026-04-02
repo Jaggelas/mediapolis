@@ -368,6 +368,7 @@ Important value notes:
 - When Jackett or qBittorrent run on the same Linux host as Docker, `http://host.docker.internal:<port>` works well once the app services include `extra_hosts: ["host.docker.internal:host-gateway"]`.
 - If you prefer, you can still use the Linux server LAN IP instead.
 - `PLEX_MOVIES_DIR`, `PLEX_TV_DIR`, and `DOWNLOADS_INCOMING_DIR` are container paths.
+- Do not set `PLEX_*` or `DOWNLOADS_INCOMING_DIR` to host paths like `/home/...`; use the `HOST_*` variables for host filesystem paths instead.
 - `HOST_*` values are the actual Linux host paths.
 
 ### Step 8: Start the containers
