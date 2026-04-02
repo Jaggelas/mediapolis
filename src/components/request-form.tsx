@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { debugError, debugLog } from "@/src/lib/debug-log";
 
 export function RequestForm() {
   const router = useRouter();
@@ -12,38 +13,60 @@ export function RequestForm() {
     setLoading(true);
     setError("");
 
-    const response = await fetch("/api/requests", {
-      method: "POST",
-      body: JSON.stringify({
-        title: formData.get("title"),
-        mediaType: formData.get("mediaType"),
-        year: formData.get("year") ? Number(formData.get("year")) : undefined,
-        notes: formData.get("notes"),
-      }),
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    const payload = {
+      title: formData.get("title"),
+      mediaType: formData.get("mediaType"),
+      year: formData.get("year") ? Number(formData.get("year")) : undefined,
+      notes: formData.get("notes"),
+    };
 
-    setLoading(false);
+    debugLog("request-form", "Submitting media request", payload);
 
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setError(payload?.error ?? "Failed to create request.");
-      return;
+    try {
+      const response = await fetch("/api/requests", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      setLoading(false);
+
+      if (!response.ok) {
+        const responsePayload = (await response.json().catch(() => null)) as { error?: string } | null;
+        const message = responsePayload?.error ?? "Failed to create request.";
+
+        debugError("request-form", "Media request failed", {
+          status: response.status,
+          message,
+        });
+        setError(message);
+        return;
+      }
+
+      debugLog("request-form", "Media request created successfully");
+      router.refresh();
+    } catch (error) {
+      setLoading(false);
+      const message = error instanceof Error ? error.message : "Unexpected request error.";
+
+      debugError("request-form", "Media request threw before completion", error);
+      setError(message);
     }
-
-    router.refresh();
   }
 
   return (
     <form
       action={onSubmit}
-      className="grid gap-4 rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur"
+      className="grid gap-5 rounded-4xl border border-white/10 bg-white/[0.07] p-5 shadow-[0_22px_50px_rgba(2,6,23,0.18)] backdrop-blur-xl sm:p-6"
     >
       <div>
-        <h2 className="text-lg font-semibold text-white">Request media</h2>
-        <p className="mt-1 text-sm text-slate-300">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-sky-300">
+          New request
+        </p>
+        <h2 className="mt-3 text-xl font-semibold tracking-tight text-white">Request media</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-300">
           Submit a movie or TV request and the worker will keep checking configured lawful indexers.
         </p>
       </div>
@@ -93,7 +116,7 @@ export function RequestForm() {
       <button
         type="submit"
         disabled={loading}
-        className="inline-flex items-center justify-center rounded-full bg-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex w-full items-center justify-center rounded-full bg-sky-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:-translate-y-0.5 hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
       >
         {loading ? "Submitting..." : "Create request"}
       </button>

@@ -34,11 +34,11 @@ export default async function HistoryPage() {
       description="Review completed and cancelled requests after they leave the active request queue."
       displayName={session.displayName}
     >
-      <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur">
-        <div className="flex items-center justify-between">
+      <section className="rounded-4xl border border-white/10 bg-white/[0.07] p-5 shadow-[0_22px_55px_rgba(2,6,23,0.18)] backdrop-blur-xl sm:p-6 lg:p-7">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-white">Completed and cancelled</h2>
-            <p className="mt-1 text-sm text-slate-300">
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
               Historical requests are kept here so the main Requests page stays focused on active work.
             </p>
           </div>
@@ -53,7 +53,7 @@ export default async function HistoryPage() {
           {requests.map((request) => (
             <article key={request.id} className="rounded-3xl border border-white/10 bg-slate-950/40 p-5">
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
+                <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-3">
                     <h3 className="text-lg font-semibold text-white">
                       {request.title}
@@ -65,12 +65,12 @@ export default async function HistoryPage() {
                     Requested by {request.requestedBy.displayName} on {formatRelativeDate(request.createdAt)}
                   </p>
                 </div>
-                <div className="text-sm text-slate-400">
+                <div className="rounded-2xl bg-white/5 px-3 py-2 text-sm text-slate-400">
                   Updated {formatRelativeDate(request.updatedAt)}
                 </div>
               </div>
 
-              <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-4">
                   <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
                     Match confidence

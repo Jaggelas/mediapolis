@@ -15,19 +15,31 @@ export function AppShell({
   displayName,
 }: AppShellProps) {
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.25),transparent_35%),linear-gradient(180deg,#020617,#0f172a_45%,#111827)] text-white">
-      <div className="flex min-h-screen w-full flex-col px-4 py-6 sm:px-6 lg:px-8">
-        <header className="rounded-4xl border border-white/10 bg-white/5 p-4 shadow-2xl shadow-slate-950/30 backdrop-blur">
-          <div className="flex flex-col gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+    <div className="relative min-h-screen overflow-x-clip text-white">
+      <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-112 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.2),transparent_42%)]" />
+      <div className="pointer-events-none absolute -right-40 top-24 -z-10 h-72 w-72 rounded-full bg-indigo-500/18 blur-3xl" />
+      <div className="pointer-events-none absolute -left-32 top-52 -z-10 h-64 w-64 rounded-full bg-sky-400/12 blur-3xl" />
+
+      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 pb-8 pt-3 sm:px-6 sm:pt-4 lg:px-8">
+        <header className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/6 p-4 shadow-[0_24px_80px_rgba(2,6,23,0.32)] backdrop-blur-xl sm:p-5">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(135deg,rgba(56,189,248,0.14),transparent_55%)]" />
+          <div className="pointer-events-none absolute -right-8 top-0 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
+
+          <div className="relative grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-sky-300">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.38em] text-sky-300 sm:text-xs">
                 Mediapolis
               </p>
-              <h1 className="mt-2 text-2xl font-semibold">{title}</h1>
-              <p className="mt-1 max-w-2xl text-sm text-slate-300">{description}</p>
+              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+                {title}
+              </h1>
+              <p className="mt-1 max-w-3xl text-sm leading-5 text-slate-400">
+                {description}
+              </p>
             </div>
+
             <div className="flex flex-col gap-3 xl:items-end">
-              <nav className="flex w-full flex-wrap items-center gap-2 rounded-3xl bg-slate-950/50 p-2 xl:w-auto xl:justify-end">
+              <nav className="flex snap-x items-center gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-slate-950/30 p-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-visible">
                 <NavLink href="/dashboard">
                   <LayoutDashboard className="h-4 w-4 shrink-0" />
                   Dashboard
@@ -49,14 +61,19 @@ export function AppShell({
                   Settings
                 </NavLink>
               </nav>
-              <div className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-slate-200 sm:w-auto">
-                <div className="font-medium">{displayName}</div>
-                <div className="text-slate-400">Local network session</div>
+
+              <div className="inline-flex items-center gap-3 self-start rounded-2xl border border-white/10 bg-slate-950/35 px-3 py-2 text-sm text-slate-200 shadow-inner shadow-black/10 xl:self-auto">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                  Signed in
+                </div>
+                <div className="h-1 w-1 rounded-full bg-emerald-300" />
+                <div className="font-medium text-white">{displayName}</div>
               </div>
             </div>
           </div>
         </header>
-        <main className="flex-1 py-6">{children}</main>
+
+        <main className="flex-1 py-5 sm:py-6">{children}</main>
       </div>
     </div>
   );

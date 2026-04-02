@@ -14,10 +14,13 @@
 - `TMDB_API_KEY`: TMDB metadata lookup key.
 - `OPENAI_API_KEY`: Optional AI model key for release disambiguation.
 - `OPENAI_MODEL`: AI model name used by the matcher.
+- `OPENAI_MATCH_MAX_CANDIDATES`: Maximum number of Jackett candidates sent to OpenAI per search cycle.
+- `OPENAI_MATCH_MIN_HEURISTIC`: Minimum heuristic score required before a candidate is eligible for AI scoring.
 - `AUTO_DOWNLOAD_THRESHOLD`: Confidence threshold for unattended start.
 - `SEARCH_INTERVAL_MINUTES`: How often pending requests are re-queued for search.
 - `POLL_INTERVAL_SECONDS`: How often active qBittorrent jobs are polled.
 - `ALLOW_AUTO_DOWNLOADS`: Enables or disables automatic download start.
+- `DEBUG_REQUEST_LOGS`: Enables temporary request/debug lifecycle logging. Defaults to on outside production when omitted.
 
 ## Jackett
 

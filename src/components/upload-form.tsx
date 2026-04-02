@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { debugError, debugLog } from "@/src/lib/debug-log";
 
 export function UploadForm() {
   const router = useRouter();
@@ -12,30 +13,57 @@ export function UploadForm() {
     setLoading(true);
     setError("");
 
-    const response = await fetch("/api/uploads/torrent", {
-      method: "POST",
-      body: formData,
+    debugLog("upload-form", "Submitting manual import", {
+      requestTitle: formData.get("requestTitle"),
+      hasMagnetUri: Boolean(String(formData.get("magnetUri") ?? "").trim()),
+      torrentFileName:
+        formData.get("torrentFile") instanceof File ? (formData.get("torrentFile") as File).name : null,
     });
 
-    setLoading(false);
+    try {
+      const response = await fetch("/api/uploads/torrent", {
+        method: "POST",
+        body: formData,
+      });
 
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setError(payload?.error ?? "Failed to submit upload.");
-      return;
+      setLoading(false);
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        const message = payload?.error ?? "Failed to submit upload.";
+
+        debugError("upload-form", "Manual import failed", {
+          status: response.status,
+          message,
+        });
+        setError(message);
+        return;
+      }
+
+      debugLog("upload-form", "Manual import created successfully");
+      router.refresh();
+    } catch (error) {
+      setLoading(false);
+      const message = error instanceof Error ? error.message : "Unexpected upload error.";
+
+      debugError("upload-form", "Manual import threw before completion", error);
+      setError(message);
     }
-
-    router.refresh();
   }
 
   return (
     <form
       action={onSubmit}
-      className="grid gap-4 rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur"
+      className="grid gap-5 rounded-4xl border border-white/10 bg-white/[0.07] p-5 shadow-[0_22px_50px_rgba(2,6,23,0.18)] backdrop-blur-xl sm:p-6"
     >
       <div>
-        <h2 className="text-lg font-semibold text-white">Import torrent or magnet</h2>
-        <p className="mt-1 text-sm text-slate-300">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-violet-300">
+          Manual import
+        </p>
+        <h2 className="mt-3 text-xl font-semibold tracking-tight text-white">
+          Import torrent or magnet
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-300">
           Upload a torrent file or paste a magnet link and the app will identify, download, and place it into the Plex folder layout.
         </p>
       </div>
@@ -69,7 +97,7 @@ export function UploadForm() {
       <button
         type="submit"
         disabled={loading}
-        className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex w-full items-center justify-center rounded-full border border-white/15 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
       >
         {loading ? "Submitting..." : "Import"}
       </button>

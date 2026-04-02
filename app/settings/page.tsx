@@ -24,14 +24,14 @@ export default async function SettingsPage() {
       description="Review runtime wiring for Docker volumes, lawful indexers, AI scoring, and qBittorrent connectivity."
       displayName={session.displayName}
     >
-      <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
-        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur">
+      <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+        <section className="rounded-4xl border border-white/10 bg-white/[0.07] p-5 shadow-[0_22px_55px_rgba(2,6,23,0.18)] backdrop-blur-xl sm:p-6 lg:p-7">
           <h2 className="text-xl font-semibold text-white">Runtime configuration</h2>
           <div className="mt-5 grid gap-3">
             {checks.map((check) => (
               <div
                 key={check.label}
-                className="flex items-center justify-between rounded-3xl border border-white/10 bg-slate-950/40 px-4 py-4"
+                className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-slate-950/40 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="text-sm text-slate-300">{check.label}</div>
                 <StatusPill value={check.value === "Configured" || check.value === "Enabled" ? "COMPLETED" : "FAILED"} />
@@ -40,25 +40,25 @@ export default async function SettingsPage() {
           </div>
 
           <div className="mt-6 rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
-            <p>Downloads path: {env.DOWNLOADS_INCOMING_DIR}</p>
-            <p className="mt-2">Plex movies path: {env.PLEX_MOVIES_DIR}</p>
-            <p className="mt-2">Plex TV path: {env.PLEX_TV_DIR}</p>
+            <p className="break-all">Downloads path: {env.DOWNLOADS_INCOMING_DIR}</p>
+            <p className="mt-2 break-all">Plex movies path: {env.PLEX_MOVIES_DIR}</p>
+            <p className="mt-2 break-all">Plex TV path: {env.PLEX_TV_DIR}</p>
             <p className="mt-2">Auto-download threshold: {env.AUTO_DOWNLOAD_THRESHOLD}</p>
           </div>
         </section>
 
-        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur">
-          <div className="flex items-center justify-between">
+        <section className="rounded-4xl border border-white/10 bg-white/[0.07] p-5 shadow-[0_22px_55px_rgba(2,6,23,0.18)] backdrop-blur-xl sm:p-6 lg:p-7">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-white">Indexer profiles</h2>
-              <p className="mt-1 text-sm text-slate-300">
+              <p className="mt-2 text-sm leading-6 text-slate-300">
                 Profiles stored in PostgreSQL for the worker scheduler.
               </p>
             </div>
             <form action="/api/auth/logout" method="post">
               <button
                 type="submit"
-                className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
+                className="w-full rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15 sm:w-auto"
               >
                 Sign out
               </button>
@@ -71,10 +71,10 @@ export default async function SettingsPage() {
                 key={indexer.id}
                 className="rounded-3xl border border-white/10 bg-slate-950/40 p-4"
               >
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
                     <h3 className="font-medium text-white">{indexer.name}</h3>
-                    <p className="mt-1 text-sm text-slate-400">{indexer.indexerKey}</p>
+                    <p className="mt-1 break-all text-sm text-slate-400">{indexer.indexerKey}</p>
                   </div>
                   <StatusPill value={indexer.enabled ? "COMPLETED" : "FAILED"} />
                 </div>

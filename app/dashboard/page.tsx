@@ -28,56 +28,82 @@ export default async function DashboardPage() {
       description="Track request activity, review queues, and current download movement from a single responsive control room."
       displayName={session.displayName}
     >
-      <div className="grid gap-6">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-6 sm:gap-7">
+        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
           <SummaryCard label="Total requests" value={summary.requests} hint="All request records in PostgreSQL" />
           <SummaryCard label="Active downloads" value={summary.downloads} hint="Currently syncing with qBittorrent" />
           <SummaryCard label="Needs review" value={summary.reviewCount} hint="AI confidence fell below your threshold" />
           <SummaryCard label="Failed items" value={summary.failedCount} hint="Requests that need admin attention" />
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur">
-            <div className="flex items-center justify-between">
+        <div className="grid gap-6 2xl:grid-cols-[1.2fr_0.8fr]">
+          <section className="rounded-4xl border border-white/10 bg-white/[0.07] p-5 shadow-[0_22px_55px_rgba(2,6,23,0.18)] backdrop-blur-xl sm:p-6 lg:p-7">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="text-xl font-semibold text-white">Recent requests</h2>
               <span className="text-sm text-slate-400">Last 6 submissions</span>
             </div>
-            <div className="mt-5 overflow-hidden rounded-3xl border border-white/10">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-white/5 text-slate-300">
-                  <tr>
-                    <th className="px-4 py-3">Title</th>
-                    <th className="px-4 py-3">User</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Submitted</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentRequests.map((request) => (
-                    <tr key={request.id} className="border-t border-white/10">
-                      <td className="px-4 py-4 text-white">{request.title}</td>
-                      <td className="px-4 py-4 text-slate-300">{request.requestedBy.displayName}</td>
-                      <td className="px-4 py-4">
-                        <StatusPill value={request.status} />
-                      </td>
-                      <td className="px-4 py-4 text-slate-400">{formatRelativeDate(request.createdAt)}</td>
+
+            <div className="mt-5 grid gap-3 md:hidden">
+              {recentRequests.map((request) => (
+                <article
+                  key={request.id}
+                  className="rounded-3xl border border-white/10 bg-slate-950/40 p-4"
+                >
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="min-w-0 text-base font-semibold text-white">{request.title}</h3>
+                      <StatusPill value={request.status} />
+                    </div>
+                    <div className="grid gap-1 text-sm text-slate-400">
+                      <p>{request.requestedBy.displayName}</p>
+                      <p>{formatRelativeDate(request.createdAt)}</p>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="mt-5 hidden overflow-hidden rounded-3xl border border-white/10 md:block">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-160 text-left text-sm">
+                  <thead className="bg-white/5 text-slate-300">
+                    <tr>
+                      <th className="px-4 py-3">Title</th>
+                      <th className="px-4 py-3">User</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Submitted</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {recentRequests.map((request) => (
+                      <tr key={request.id} className="border-t border-white/10">
+                        <td className="px-4 py-4 text-white">{request.title}</td>
+                        <td className="px-4 py-4 text-slate-300">{request.requestedBy.displayName}</td>
+                        <td className="px-4 py-4">
+                          <StatusPill value={request.status} />
+                        </td>
+                        <td className="px-4 py-4 text-slate-400">{formatRelativeDate(request.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
 
-          <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur">
-            <div className="flex items-center justify-between">
+          <section className="rounded-4xl border border-white/10 bg-white/[0.07] p-5 shadow-[0_22px_55px_rgba(2,6,23,0.18)] backdrop-blur-xl sm:p-6 lg:p-7">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="text-xl font-semibold text-white">Download activity</h2>
               <span className="text-sm text-slate-400">Last 6 updates</span>
             </div>
             <div className="mt-5 grid gap-3">
               {recentDownloads.map((job) => (
-                <article key={job.id} className="rounded-3xl border border-white/10 bg-slate-950/40 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
+                <article
+                  key={job.id}
+                  className="rounded-3xl border border-white/10 bg-slate-950/40 p-4"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
                       <h3 className="font-medium text-white">
                         {job.request?.title ?? job.inputName ?? "Unnamed import"}
                       </h3>

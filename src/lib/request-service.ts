@@ -1,9 +1,10 @@
 import path from "node:path";
 import { CandidateStatus, DownloadSource, DownloadStatus, MediaFileStatus, MediaType, RequestStatus } from "@/src/generated/prisma/enums";
 import { prisma } from "@/src/lib/db";
+import { debugLog, debugWarn } from "@/src/lib/debug-log";
 import { getEnv } from "@/src/lib/env";
 import { createAuditLog } from "@/src/lib/audit-log";
-import { scoreCandidateWithAi } from "@/src/lib/ai-matcher";
+import { planCandidateScoring, scoreCandidateWithAi } from "@/src/lib/ai-matcher";
 import { searchJackett } from "@/src/lib/jackett";
 import { buildDestinationPath, moveIntoPlexLibrary } from "@/src/lib/media-organizer";
 import { addMagnetToQbittorrent, addTorrentFileToQbittorrent, getQbittorrentTorrent, listQbittorrentTorrents, removeQbittorrentTorrents } from "@/src/lib/qbittorrent";
@@ -19,6 +20,13 @@ type CreateRequestInput = {
   userId: string;
 };
 
+const ACTIVE_DOWNLOAD_STATUSES = [
+  DownloadStatus.QUEUED,
+  DownloadStatus.MATCHED,
+  DownloadStatus.DOWNLOADING,
+  DownloadStatus.ORGANIZING,
+];
+
 function inferMediaTypeFromName(input: string) {
   return inferEpisode(input) ? MediaType.SHOW : MediaType.MOVIE;
 }
@@ -27,10 +35,31 @@ function buildQbCategory(requestId: string) {
   return `request-${requestId}`;
 }
 
-async function removeRequestTorrents(requestId: string) {
+function buildNextSearchAt(searchIntervalMinutes: number) {
+  return new Date(Date.now() + searchIntervalMinutes * 60 * 1000);
+}
+
+async function findActiveDownloadJobForRequest(requestId: string) {
+  return prisma.downloadJob.findFirst({
+    where: {
+      requestId,
+      status: {
+        in: ACTIVE_DOWNLOAD_STATUSES,
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+async function removeRequestTorrents(requestId: string, knownHashes: string[] = []) {
   const qbCategory = buildQbCategory(requestId);
+  debugLog("request-service", "Removing request torrents", {
+    requestId,
+    qbCategory,
+    knownHashCount: knownHashes.filter(Boolean).length,
+  });
   const torrents = await listQbittorrentTorrents(qbCategory);
-  const hashes = torrents.map((torrent) => torrent.hash);
+  const hashes = [...new Set([...knownHashes.filter(Boolean), ...torrents.map((torrent) => torrent.hash)])];
 
   if (hashes.length > 0) {
     await removeQbittorrentTorrents({
@@ -41,20 +70,51 @@ async function removeRequestTorrents(requestId: string) {
 }
 
 async function startCandidateDownload(requestId: string, candidateId: string) {
+  debugLog("request-service", "Starting candidate download", {
+    requestId,
+    candidateId,
+  });
   const candidate = await prisma.candidateTorrent.findUnique({
     where: { id: candidateId },
     include: { request: true },
   });
 
   if (!candidate) {
+    debugWarn("request-service", "Candidate download failed because candidate was not found", {
+      requestId,
+      candidateId,
+    });
     throw new Error("Candidate not found.");
   }
 
   if (!candidate.magnetUri) {
+    debugWarn("request-service", "Candidate download failed because no magnet URI was present", {
+      requestId,
+      candidateId,
+    });
     throw new Error("This candidate does not expose a magnet URI for automated download.");
   }
 
   const qbCategory = buildQbCategory(requestId);
+  const existingDownloadJob = await findActiveDownloadJobForRequest(requestId);
+
+  if (existingDownloadJob) {
+    debugWarn("request-service", "Reusing existing active download job for request", {
+      requestId,
+      candidateId,
+      existingDownloadJobId: existingDownloadJob.id,
+      existingCandidateId: existingDownloadJob.candidateId,
+    });
+
+    await prisma.mediaRequest.update({
+      where: { id: requestId },
+      data: {
+        status: RequestStatus.DOWNLOADING,
+      },
+    });
+
+    return existingDownloadJob;
+  }
 
   await addMagnetToQbittorrent({
     magnetUri: candidate.magnetUri,
@@ -88,10 +148,22 @@ async function startCandidateDownload(requestId: string, candidateId: string) {
     },
   });
 
+  debugLog("request-service", "Candidate download job created", {
+    requestId,
+    candidateId,
+    downloadJobId: downloadJob.id,
+    qbCategory,
+  });
   return downloadJob;
 }
 
 export async function createMediaRequest(input: CreateRequestInput) {
+  debugLog("request-service", "Creating media request", {
+    userId: input.userId,
+    title: input.title,
+    mediaType: input.mediaType,
+    year: input.year ?? null,
+  });
   const normalizedTitle = normalizeTitle(input.title);
   const tmdbMatch = await resolveTmdbMatch({
     title: input.title,
@@ -109,7 +181,6 @@ export async function createMediaRequest(input: CreateRequestInput) {
       notes: input.notes,
       tmdbId: tmdbMatch?.tmdbId,
       searchQuery: buildSearchQuery(input.title.trim(), input.year),
-      aiConfidence: tmdbMatch?.confidence,
       nextSearchAt: new Date(),
       autoDownloadThreshold: getEnv().AUTO_DOWNLOAD_THRESHOLD,
     },
@@ -128,11 +199,20 @@ export async function createMediaRequest(input: CreateRequestInput) {
     },
   });
 
+  debugLog("request-service", "Media request created", {
+    requestId: request.id,
+    title: request.title,
+    tmdbId: request.tmdbId,
+    aiConfidence: request.aiConfidence,
+  });
   return request;
 }
 
 export async function searchAndMatchRequest(requestId: string) {
   const env = getEnv();
+  debugLog("request-service", "Starting search cycle for request", {
+    requestId,
+  });
   const request = await prisma.mediaRequest.findUnique({
     where: { id: requestId },
     include: {
@@ -141,10 +221,17 @@ export async function searchAndMatchRequest(requestId: string) {
   });
 
   if (!request) {
+    debugWarn("request-service", "Search cycle skipped because request was not found", {
+      requestId,
+    });
     return null;
   }
 
   if (request.status === RequestStatus.CANCELLED || request.status === RequestStatus.COMPLETED) {
+    debugLog("request-service", "Search cycle skipped because request is no longer active", {
+      requestId,
+      status: request.status,
+    });
     return request;
   }
 
@@ -153,30 +240,109 @@ export async function searchAndMatchRequest(requestId: string) {
     data: {
       status: RequestStatus.SEARCHING,
       lastSearchedAt: new Date(),
-      nextSearchAt: new Date(Date.now() + env.SEARCH_INTERVAL_MINUTES * 60 * 1000),
+      nextSearchAt: buildNextSearchAt(env.SEARCH_INTERVAL_MINUTES),
+      aiReason: null,
     },
   });
 
-  const candidates = await searchJackett(request.searchQuery ?? request.title, request.mediaType);
+  let candidates: Awaited<ReturnType<typeof searchJackett>>;
+
+  try {
+    candidates = await searchJackett(request.searchQuery ?? request.title, request.mediaType);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown search error.";
+    const nextSearchAt = buildNextSearchAt(env.SEARCH_INTERVAL_MINUTES);
+
+    debugWarn("request-service", "Search failed and request will be retried later", {
+      requestId,
+      message,
+      nextSearchAt,
+    });
+
+    await prisma.mediaRequest.update({
+      where: { id: request.id },
+      data: {
+        status: RequestStatus.REQUESTED,
+        aiReason: `Search failed: ${message}`,
+        nextSearchAt,
+      },
+    });
+
+    return prisma.mediaRequest.findUnique({
+      where: { id: request.id },
+    });
+  }
+
+  debugLog("request-service", "Jackett search completed", {
+    requestId,
+    candidateCount: candidates.length,
+    query: request.searchQuery ?? request.title,
+  });
 
   if (candidates.length === 0) {
-    return request;
+    const nextSearchAt = buildNextSearchAt(env.SEARCH_INTERVAL_MINUTES);
+
+    await prisma.mediaRequest.update({
+      where: { id: request.id },
+      data: {
+        status: RequestStatus.REQUESTED,
+        aiReason: "No matching releases found yet. The request will be retried automatically.",
+        aiConfidence: null,
+        nextSearchAt,
+      },
+    });
+
+    debugWarn("request-service", "No candidates returned for request", {
+      requestId,
+      nextSearchAt,
+    });
+
+    return prisma.mediaRequest.findUnique({
+      where: { id: request.id },
+    });
   }
 
   await prisma.candidateTorrent.deleteMany({
     where: { requestId: request.id, status: CandidateStatus.PENDING },
   });
 
+  const scoringPlan = planCandidateScoring(
+    {
+      title: request.title,
+      year: request.year,
+      mediaType: request.mediaType,
+    },
+    candidates,
+    {
+      maxAiCandidates: env.OPENAI_MATCH_MAX_CANDIDATES,
+      minHeuristicScore: env.OPENAI_MATCH_MIN_HEURISTIC,
+    },
+  );
+
+  debugLog("request-service", "Prepared candidate scoring plan", {
+    requestId,
+    candidateCount: scoringPlan.length,
+    aiCandidateCount: scoringPlan.filter((entry) => entry.useAi).length,
+    heuristicOnlyCount: scoringPlan.filter((entry) => !entry.useAi).length,
+    maxAiCandidates: env.OPENAI_MATCH_MAX_CANDIDATES,
+    minHeuristicScore: env.OPENAI_MATCH_MIN_HEURISTIC,
+  });
+
   const scoredCandidates = await Promise.all(
-    candidates.map(async (candidate) => {
-      const score = await scoreCandidateWithAi(
-        {
-          title: request.title,
-          year: request.year,
-          mediaType: request.mediaType,
-        },
-        candidate,
-      );
+    scoringPlan.map(async ({ candidate, heuristicScore, useAi }) => {
+      const score = useAi
+        ? await scoreCandidateWithAi(
+            {
+              title: request.title,
+              year: request.year,
+              mediaType: request.mediaType,
+            },
+            candidate,
+          )
+        : {
+            confidence: heuristicScore,
+            reason: "Heuristic score used to avoid unnecessary AI requests.",
+          };
 
       const created = await prisma.candidateTorrent.create({
         data: {
@@ -205,6 +371,9 @@ export async function searchAndMatchRequest(requestId: string) {
   )[0];
 
   if (!bestCandidate) {
+    debugWarn("request-service", "No best candidate could be selected", {
+      requestId,
+    });
     return request;
   }
 
@@ -226,20 +395,53 @@ export async function searchAndMatchRequest(requestId: string) {
     },
   });
 
+  debugLog("request-service", "Search cycle updated request status", {
+    requestId,
+    nextStatus,
+    bestCandidateId: bestCandidate.id,
+    bestConfidence,
+    threshold,
+  });
+
   if (nextStatus === RequestStatus.MATCHED) {
-    await startCandidateDownload(request.id, bestCandidate.id);
+    try {
+      await startCandidateDownload(request.id, bestCandidate.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown auto-download error.";
+
+      debugWarn("request-service", "Auto-download failed after a successful match", {
+        requestId,
+        bestCandidateId: bestCandidate.id,
+        message,
+      });
+
+      await prisma.mediaRequest.update({
+        where: { id: request.id },
+        data: {
+          status: RequestStatus.REVIEW,
+          aiReason: `Match found, but auto-download failed: ${message}`,
+        },
+      });
+    }
   }
 
   return request;
 }
 
 export async function approveCandidate(candidateId: string, userId: string) {
+  debugLog("request-service", "Approving candidate", {
+    userId,
+    candidateId,
+  });
   const candidate = await prisma.candidateTorrent.findUnique({
     where: { id: candidateId },
     include: { request: true },
   });
 
   if (!candidate?.requestId) {
+    debugWarn("request-service", "Candidate approval failed because candidate was not found", {
+      candidateId,
+    });
     throw new Error("Candidate not found.");
   }
 
@@ -247,6 +449,11 @@ export async function approveCandidate(candidateId: string, userId: string) {
     candidate.request?.status === RequestStatus.CANCELLED ||
     candidate.request?.status === RequestStatus.COMPLETED
   ) {
+    debugWarn("request-service", "Candidate approval rejected because request is closed", {
+      candidateId,
+      requestId: candidate.requestId,
+      requestStatus: candidate.request?.status,
+    });
     throw new Error("This request can no longer be approved.");
   }
 
@@ -264,10 +471,18 @@ export async function approveCandidate(candidateId: string, userId: string) {
     details: { title: candidate.title },
   });
 
+  debugLog("request-service", "Candidate approved, starting download", {
+    candidateId,
+    requestId: candidate.requestId,
+  });
   return startCandidateDownload(candidate.requestId, candidateId);
 }
 
 export async function cancelMediaRequest(requestId: string, userId: string) {
+  debugLog("request-service", "Cancelling media request", {
+    userId,
+    requestId,
+  });
   const request = await prisma.mediaRequest.findUnique({
     where: { id: requestId },
     include: {
@@ -277,21 +492,35 @@ export async function cancelMediaRequest(requestId: string, userId: string) {
   });
 
   if (!request) {
+    debugWarn("request-service", "Cancellation failed because request was not found", {
+      requestId,
+    });
     throw new Error("Request not found.");
   }
 
   if (request.status === RequestStatus.COMPLETED) {
+    debugWarn("request-service", "Cancellation rejected because request is completed", {
+      requestId,
+    });
     throw new Error("Completed requests cannot be cancelled.");
   }
 
   if (request.status === RequestStatus.CANCELLED) {
+    debugLog("request-service", "Cancellation skipped because request is already cancelled", {
+      requestId,
+    });
     return request;
   }
 
   let torrentCleanupWarning: string | null = null;
 
   try {
-    await removeRequestTorrents(request.id);
+    await removeRequestTorrents(
+      request.id,
+      request.downloads
+        .map((download) => download.qbTorrentHash)
+        .filter((hash): hash is string => Boolean(hash)),
+    );
   } catch (error) {
     torrentCleanupWarning =
       error instanceof Error
@@ -300,6 +529,10 @@ export async function cancelMediaRequest(requestId: string, userId: string) {
     console.warn(
       `Failed to remove qBittorrent torrents for request ${request.id}: ${torrentCleanupWarning}`,
     );
+    debugWarn("request-service", "qBittorrent cleanup during cancellation failed", {
+      requestId,
+      warning: torrentCleanupWarning,
+    });
   }
 
   await prisma.$transaction([
@@ -358,6 +591,10 @@ export async function cancelMediaRequest(requestId: string, userId: string) {
     },
   });
 
+  debugLog("request-service", "Cancellation completed", {
+    requestId,
+    torrentCleanupWarning,
+  });
   return prisma.mediaRequest.findUnique({
     where: { id: request.id },
   });
@@ -371,6 +608,12 @@ export async function createManualDownload(input: {
   requestTitle?: string;
   mediaType?: MediaType;
 }) {
+  debugLog("request-service", "Creating manual download", {
+    userId: input.userId,
+    requestTitle: input.requestTitle ?? null,
+    hasMagnetUri: Boolean(input.magnetUri),
+    torrentFileName: input.torrentFile?.name ?? input.fileName ?? null,
+  });
   const titleBasis =
     input.requestTitle?.trim() ||
     input.fileName?.replace(/\.torrent$/i, "") ||
@@ -401,6 +644,9 @@ export async function createManualDownload(input: {
       category: qbCategory,
     });
   } else {
+    debugWarn("request-service", "Manual download failed because no source was provided", {
+      userId: input.userId,
+    });
     throw new Error("A magnet URI or torrent file is required.");
   }
 
@@ -424,16 +670,28 @@ export async function createManualDownload(input: {
     },
   });
 
+  debugLog("request-service", "Manual download job created", {
+    requestId: request.id,
+    downloadJobId: downloadJob.id,
+    source,
+    qbCategory,
+  });
   return downloadJob;
 }
 
 export async function syncDownloadJob(downloadJobId: string) {
+  debugLog("request-service", "Syncing download job", {
+    downloadJobId,
+  });
   const downloadJob = await prisma.downloadJob.findUnique({
     where: { id: downloadJobId },
     include: { request: true },
   });
 
   if (!downloadJob) {
+    debugWarn("request-service", "Download sync skipped because job was not found", {
+      downloadJobId,
+    });
     return null;
   }
 
@@ -441,6 +699,11 @@ export async function syncDownloadJob(downloadJobId: string) {
     downloadJob.status === DownloadStatus.CANCELLED ||
     downloadJob.request?.status === RequestStatus.CANCELLED
   ) {
+    debugLog("request-service", "Download sync skipped because job or request is cancelled", {
+      downloadJobId,
+      downloadStatus: downloadJob.status,
+      requestStatus: downloadJob.request?.status,
+    });
     return downloadJob;
   }
 
@@ -457,6 +720,11 @@ export async function syncDownloadJob(downloadJobId: string) {
   }
 
   if (!torrent) {
+    debugWarn("request-service", "Download sync could not find a matching torrent yet", {
+      downloadJobId,
+      qbCategory: downloadJob.qbCategory,
+      qbTorrentHash: downloadJob.qbTorrentHash,
+    });
     return downloadJob;
   }
 
@@ -464,6 +732,34 @@ export async function syncDownloadJob(downloadJobId: string) {
     torrent.progress >= 1 ||
     torrent.state.toLowerCase().includes("upload") ||
     torrent.completion_on > 0;
+
+  const existingJobWithHash = await prisma.downloadJob.findFirst({
+    where: {
+      qbTorrentHash: torrent.hash,
+      id: {
+        not: downloadJob.id,
+      },
+    },
+  });
+
+  if (existingJobWithHash) {
+    debugWarn("request-service", "Cancelling duplicate download job that resolved to an existing torrent", {
+      downloadJobId,
+      duplicateOfDownloadJobId: existingJobWithHash.id,
+      torrentHash: torrent.hash,
+    });
+
+    await prisma.downloadJob.update({
+      where: { id: downloadJob.id },
+      data: {
+        status: DownloadStatus.CANCELLED,
+        errorMessage: `Duplicate of download job ${existingJobWithHash.id}.`,
+        completedAt: new Date(),
+      },
+    });
+
+    return existingJobWithHash;
+  }
 
   await prisma.downloadJob.update({
     where: { id: downloadJob.id },
@@ -487,10 +783,20 @@ export async function syncDownloadJob(downloadJobId: string) {
     });
   }
 
+  debugLog("request-service", "Download sync updated torrent progress", {
+    downloadJobId,
+    requestId: downloadJob.requestId,
+    torrentHash: torrent.hash,
+    progress: torrent.progress,
+    completed,
+  });
   return torrent;
 }
 
 export async function postProcessDownload(downloadJobId: string) {
+  debugLog("request-service", "Post-processing download", {
+    downloadJobId,
+  });
   const downloadJob = await prisma.downloadJob.findUnique({
     where: { id: downloadJobId },
     include: {
@@ -499,10 +805,17 @@ export async function postProcessDownload(downloadJobId: string) {
   });
 
   if (!downloadJob?.request || !downloadJob.downloadPath) {
+    debugWarn("request-service", "Post-processing skipped because the download is incomplete", {
+      downloadJobId,
+    });
     return null;
   }
 
   if (downloadJob.request.status === RequestStatus.CANCELLED) {
+    debugLog("request-service", "Post-processing skipped because request is cancelled", {
+      downloadJobId,
+      requestId: downloadJob.request.id,
+    });
     return null;
   }
 
@@ -551,6 +864,11 @@ export async function postProcessDownload(downloadJobId: string) {
     },
   });
 
+  debugLog("request-service", "Post-processing completed", {
+    downloadJobId,
+    requestId: downloadJob.request.id,
+    destination: previewDestination.destinationPath,
+  });
   return moved;
 }
 

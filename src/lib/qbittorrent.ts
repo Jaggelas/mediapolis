@@ -1,4 +1,5 @@
 import { getEnv } from "@/src/lib/env";
+import { debugError, debugLog, debugWarn } from "@/src/lib/debug-log";
 
 type QbTorrentInfo = {
   hash: string;
@@ -14,8 +15,23 @@ type QbTorrentInfo = {
 
 let sessionCookie: string | null = null;
 
+function getQbittorrentRequestHeaders(headers?: HeadersInit) {
+  const env = getEnv();
+  const origin = new URL(env.QBITTORRENT_BASE_URL).origin;
+  const referer = env.QBITTORRENT_BASE_URL.endsWith("/")
+    ? env.QBITTORRENT_BASE_URL
+    : `${env.QBITTORRENT_BASE_URL}/`;
+
+  return {
+    ...(headers ?? {}),
+    Origin: origin,
+    Referer: referer,
+  };
+}
+
 async function getSessionCookie() {
   if (sessionCookie) {
+    debugLog("qbittorrent", "Reusing cached session cookie");
     return sessionCookie;
   }
 
@@ -28,6 +44,7 @@ async function getSessionCookie() {
   const response = await fetch(`${env.QBITTORRENT_BASE_URL}/api/v2/auth/login`, {
     method: "POST",
     headers: {
+      ...getQbittorrentRequestHeaders(),
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: body.toString(),
@@ -35,26 +52,42 @@ async function getSessionCookie() {
   });
 
   if (!response.ok) {
-    throw new Error(`qBittorrent login failed with status ${response.status}`);
+    const bodyPreview = (await response.text().catch(() => "")).slice(0, 200);
+    debugError("qbittorrent", "Login failed", {
+      status: response.status,
+      baseUrl: env.QBITTORRENT_BASE_URL,
+      bodyPreview,
+    });
+    throw new Error(
+      bodyPreview
+        ? `qBittorrent login failed with status ${response.status}: ${bodyPreview}`
+        : `qBittorrent login failed with status ${response.status}`,
+    );
   }
 
   const cookieHeader = response.headers.get("set-cookie");
 
   if (!cookieHeader) {
+    debugError("qbittorrent", "Login succeeded without session cookie");
     throw new Error("qBittorrent login did not return a session cookie.");
   }
 
   sessionCookie = cookieHeader.split(";")[0];
+  debugLog("qbittorrent", "Established new session cookie");
   return sessionCookie;
 }
 
 async function qbFetch(path: string, init?: RequestInit) {
   const env = getEnv();
   const cookie = await getSessionCookie();
+  debugLog("qbittorrent", "Sending request", {
+    path,
+    method: init?.method ?? "GET",
+  });
   const response = await fetch(`${env.QBITTORRENT_BASE_URL}${path}`, {
     ...init,
     headers: {
-      ...(init?.headers ?? {}),
+      ...getQbittorrentRequestHeaders(init?.headers),
       Cookie: cookie,
     },
     cache: "no-store",
@@ -62,8 +95,17 @@ async function qbFetch(path: string, init?: RequestInit) {
 
   if (response.status === 403) {
     sessionCookie = null;
+    debugWarn("qbittorrent", "Session expired, retrying after clearing cookie", {
+      path,
+    });
     return qbFetch(path, init);
   }
+
+  debugLog("qbittorrent", "Received response", {
+    path,
+    method: init?.method ?? "GET",
+    status: response.status,
+  });
 
   return response;
 }
@@ -73,6 +115,10 @@ export async function addMagnetToQbittorrent(input: {
   category: string;
   savePath?: string;
 }) {
+  debugLog("qbittorrent", "Adding magnet", {
+    category: input.category,
+    savePath: input.savePath ?? getEnv().DOWNLOADS_INCOMING_DIR,
+  });
   const body = new URLSearchParams({
     urls: input.magnetUri,
     category: input.category,
@@ -97,6 +143,11 @@ export async function addTorrentFileToQbittorrent(input: {
   category: string;
   savePath?: string;
 }) {
+  debugLog("qbittorrent", "Uploading torrent file", {
+    category: input.category,
+    fileName: input.file.name,
+    savePath: input.savePath ?? getEnv().DOWNLOADS_INCOMING_DIR,
+  });
   const formData = new FormData();
   formData.append("torrents", input.file);
   formData.append("category", input.category);
@@ -113,6 +164,9 @@ export async function addTorrentFileToQbittorrent(input: {
 }
 
 export async function listQbittorrentTorrents(category?: string) {
+  debugLog("qbittorrent", "Listing torrents", {
+    category: category ?? null,
+  });
   const query = new URLSearchParams();
 
   if (category) {
@@ -140,8 +194,14 @@ export async function removeQbittorrentTorrents(input: {
   const hashes = input.hashes.filter(Boolean);
 
   if (hashes.length === 0) {
+    debugLog("qbittorrent", "Skipping delete because no hashes were provided");
     return;
   }
+
+  debugLog("qbittorrent", "Removing torrents", {
+    hashCount: hashes.length,
+    deleteFiles: input.deleteFiles !== false,
+  });
 
   const body = new URLSearchParams({
     hashes: hashes.join("|"),

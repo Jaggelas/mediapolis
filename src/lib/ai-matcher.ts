@@ -20,6 +20,12 @@ export type MatchResult = {
   reason: string;
 };
 
+export type PlannedCandidateScore<TCandidate extends MatchCandidateRelease> = {
+  candidate: TCandidate;
+  heuristicScore: number;
+  useAi: boolean;
+};
+
 export function scoreCandidateHeuristically(
   request: MatchCandidateInput,
   candidate: MatchCandidateRelease,
@@ -52,6 +58,37 @@ export function scoreCandidateHeuristically(
   }
 
   return Math.max(0, Math.min(1, score));
+}
+
+export function planCandidateScoring<TCandidate extends MatchCandidateRelease>(
+  request: MatchCandidateInput,
+  candidates: TCandidate[],
+  config: {
+    maxAiCandidates: number;
+    minHeuristicScore: number;
+  },
+) {
+  let aiSlotsRemaining = config.maxAiCandidates;
+
+  return candidates
+    .map((candidate) => ({
+      candidate,
+      heuristicScore: scoreCandidateHeuristically(request, candidate),
+    }))
+    .sort((left, right) => right.heuristicScore - left.heuristicScore)
+    .map((entry) => {
+      const useAi =
+        aiSlotsRemaining > 0 && entry.heuristicScore >= config.minHeuristicScore;
+
+      if (useAi) {
+        aiSlotsRemaining -= 1;
+      }
+
+      return {
+        ...entry,
+        useAi,
+      } satisfies PlannedCandidateScore<TCandidate>;
+    });
 }
 
 export async function scoreCandidateWithAi(
