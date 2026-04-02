@@ -13,8 +13,18 @@ type DownloadFeedItem = {
   path?: string | null;
 };
 
+function sortDownloadFeedItems(items: DownloadFeedItem[]) {
+  return [...items].sort((left, right) => {
+    if (right.progress !== left.progress) {
+      return right.progress - left.progress;
+    }
+
+    return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+  });
+}
+
 export function DownloadFeed({ initialItems }: { initialItems: DownloadFeedItem[] }) {
-  const [items, setItems] = useState(initialItems);
+  const [items, setItems] = useState(() => sortDownloadFeedItems(initialItems));
 
   useEffect(() => {
     const source = new EventSource("/api/stream/downloads");
@@ -22,7 +32,7 @@ export function DownloadFeed({ initialItems }: { initialItems: DownloadFeedItem[
     source.onmessage = (event) => {
       try {
         const nextItems = JSON.parse(event.data) as DownloadFeedItem[];
-        setItems(nextItems);
+        setItems(sortDownloadFeedItems(nextItems));
       } catch {
         // Ignore malformed events and keep the last good snapshot.
       }

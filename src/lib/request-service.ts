@@ -70,6 +70,41 @@ async function removeRequestTorrents(requestId: string, knownHashes: string[] = 
   }
 }
 
+async function removeCompletedDownloadTorrent(input: {
+  requestId: string;
+  qbCategory?: string | null;
+  qbTorrentHash?: string | null;
+}) {
+  const qbCategory = input.qbCategory ?? buildQbCategory(input.requestId);
+  debugLog("request-service", "Removing completed qBittorrent torrent", {
+    requestId: input.requestId,
+    qbCategory,
+    hasKnownHash: Boolean(input.qbTorrentHash),
+  });
+
+  const torrents = await listQbittorrentTorrents(qbCategory);
+  const hashes = [
+    ...new Set(
+      [input.qbTorrentHash, ...torrents.map((torrent) => torrent.hash)].filter(
+        (hash): hash is string => Boolean(hash),
+      ),
+    ),
+  ];
+
+  if (hashes.length === 0) {
+    debugLog("request-service", "No qBittorrent torrents found to remove after post-processing", {
+      requestId: input.requestId,
+      qbCategory,
+    });
+    return;
+  }
+
+  await removeQbittorrentTorrents({
+    hashes,
+    deleteFiles: false,
+  });
+}
+
 async function startCandidateDownload(requestId: string, candidateId: string) {
   debugLog("request-service", "Starting candidate download", {
     requestId,
@@ -869,6 +904,29 @@ export async function postProcessDownload(downloadJobId: string) {
     sourcePath: downloadJob.downloadPath,
   });
 
+  let torrentRemovalWarning: string | null = null;
+
+  try {
+    await removeCompletedDownloadTorrent({
+      requestId: downloadJob.request.id,
+      qbCategory: downloadJob.qbCategory,
+      qbTorrentHash: downloadJob.qbTorrentHash,
+    });
+  } catch (error) {
+    torrentRemovalWarning =
+      error instanceof Error
+        ? error.message
+        : "Unknown qBittorrent cleanup error after post-processing.";
+    console.warn(
+      `Failed to remove qBittorrent torrent for completed download ${downloadJob.id}: ${torrentRemovalWarning}`,
+    );
+    debugWarn("request-service", "qBittorrent cleanup after post-processing failed", {
+      downloadJobId,
+      requestId: downloadJob.request.id,
+      warning: torrentRemovalWarning,
+    });
+  }
+
   await prisma.mediaFile.create({
     data: {
       requestId: downloadJob.request.id,
@@ -890,6 +948,7 @@ export async function postProcessDownload(downloadJobId: string) {
     where: { id: downloadJob.id },
     data: {
       status: DownloadStatus.COMPLETED,
+      ...(torrentRemovalWarning ? { errorMessage: torrentRemovalWarning } : {}),
     },
   });
 
@@ -904,6 +963,7 @@ export async function postProcessDownload(downloadJobId: string) {
     downloadJobId,
     requestId: downloadJob.request.id,
     destination: previewDestination.destinationPath,
+    torrentRemovalWarning,
   });
   return moved;
 }
@@ -937,19 +997,27 @@ export async function getDownloadFeed() {
         in: ACTIVE_DOWNLOAD_STATUSES,
       },
     },
-    orderBy: { updatedAt: "desc" },
+    orderBy: [{ progress: "desc" }, { updatedAt: "desc" }],
     take: 20,
     include: {
       request: true,
     },
   });
 
-  return jobs.map((job) => ({
-    id: job.id,
-    title: job.request?.title ?? job.inputName ?? "Unknown download",
-    status: job.status,
-    progress: job.progress ?? 0,
-    updatedAt: job.updatedAt.toISOString(),
-    path: job.downloadPath,
-  }));
+  return jobs
+    .map((job) => ({
+      id: job.id,
+      title: job.request?.title ?? job.inputName ?? "Unknown download",
+      status: job.status,
+      progress: job.progress ?? 0,
+      updatedAt: job.updatedAt.toISOString(),
+      path: job.downloadPath,
+    }))
+    .sort((left, right) => {
+      if (right.progress !== left.progress) {
+        return right.progress - left.progress;
+      }
+
+      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    });
 }

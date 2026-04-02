@@ -1,11 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { debugError, debugLog } from "@/src/lib/debug-log";
 
-export function RequestForm() {
+type RequestFormProps = {
+  onSuccess?: () => void;
+  surface?: "card" | "plain";
+};
+
+export function RequestForm({ onSuccess, surface = "card" }: RequestFormProps) {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -46,7 +52,9 @@ export function RequestForm() {
       }
 
       debugLog("request-form", "Media request created successfully");
+      formRef.current?.reset();
       router.refresh();
+      onSuccess?.();
     } catch (error) {
       setLoading(false);
       const message = error instanceof Error ? error.message : "Unexpected request error.";
@@ -58,8 +66,13 @@ export function RequestForm() {
 
   return (
     <form
+      ref={formRef}
       action={onSubmit}
-      className="grid gap-5 rounded-4xl border border-white/10 bg-white/[0.07] p-5 shadow-[0_22px_50px_rgba(2,6,23,0.18)] backdrop-blur-xl sm:p-6"
+      className={
+        surface === "plain"
+          ? "grid gap-5"
+          : "grid gap-5 rounded-4xl border border-white/10 bg-white/[0.07] p-5 shadow-[0_22px_50px_rgba(2,6,23,0.18)] backdrop-blur-xl sm:p-6"
+      }
     >
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-sky-300">
