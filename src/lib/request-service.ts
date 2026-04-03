@@ -22,12 +22,29 @@ type CreateRequestInput = {
   tmdbId?: number;
 };
 
+type BrowseSelectedTorrentInput = {
+  title: string;
+  magnetUri: string;
+  torrentUrl?: string;
+  indexerKey?: string;
+  seeders?: number;
+  peers?: number;
+  sizeBytes?: number;
+  resolution?: string;
+};
+
+const RESOLUTION_NOTE_PREFIX = "Preferred resolution:";
+const SUPPORTED_RESOLUTIONS = ["2160p", "1440p", "1080p", "720p", "576p", "480p"] as const;
+type ResolutionPreference = (typeof SUPPORTED_RESOLUTIONS)[number];
+
 const ACTIVE_DOWNLOAD_STATUSES = [
   DownloadStatus.QUEUED,
   DownloadStatus.MATCHED,
   DownloadStatus.DOWNLOADING,
   DownloadStatus.ORGANIZING,
 ];
+
+const VISIBLE_DOWNLOAD_FEED_STATUSES = [...ACTIVE_DOWNLOAD_STATUSES, DownloadStatus.FAILED];
 
 function inferMediaTypeFromName(input: string) {
   return inferEpisode(input) ? MediaType.SHOW : MediaType.MOVIE;
@@ -72,6 +89,45 @@ function resolveTorrentDownloadPath(
     : path.posix.join(normalizeContainerPath(torrent.save_path), torrent.name);
 
   return translateHostDownloadPathToContainer(rawPath);
+}
+
+function isQbittorrentFailureState(state: string) {
+  const normalizedState = state.toLowerCase();
+  return normalizedState.includes("error") || normalizedState.includes("missingfiles");
+}
+
+function normalizeResolutionPreference(input?: string | null): ResolutionPreference | undefined {
+  if (!input) {
+    return undefined;
+  }
+
+  const normalized = input.trim().toLowerCase();
+  if (normalized === "4k") {
+    return "2160p";
+  }
+
+  return SUPPORTED_RESOLUTIONS.find((resolution) => resolution === normalized);
+}
+
+function extractPreferredResolution(notes?: string | null): ResolutionPreference | undefined {
+  if (!notes) {
+    return undefined;
+  }
+
+  const escapedPrefix = RESOLUTION_NOTE_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = notes.match(new RegExp(`${escapedPrefix}\\s*(\\S+)`, "i"));
+  return normalizeResolutionPreference(match?.[1]);
+}
+
+function candidateMatchesResolution(title: string, preferredResolution: ResolutionPreference) {
+  const normalizedTitle = title.toLowerCase();
+
+  switch (preferredResolution) {
+    case "2160p":
+      return /\b(?:2160p|4k|uhd)\b/i.test(normalizedTitle);
+    default:
+      return new RegExp(`\\b${preferredResolution}\\b`, "i").test(normalizedTitle);
+  }
 }
 
 async function pathExists(filePath: string) {
@@ -148,7 +204,11 @@ async function removeCompletedDownloadTorrent(input: {
   });
 }
 
-async function startCandidateDownload(requestId: string, candidateId: string) {
+async function startCandidateDownload(
+  requestId: string,
+  candidateId: string,
+  options?: { replaceExisting?: boolean },
+) {
   debugLog("request-service", "Starting candidate download", {
     requestId,
     candidateId,
@@ -178,6 +238,55 @@ async function startCandidateDownload(requestId: string, candidateId: string) {
   const existingDownloadJob = await findActiveDownloadJobForRequest(requestId);
 
   if (existingDownloadJob) {
+    if (options?.replaceExisting) {
+      debugLog("request-service", "Replacing existing active download job for request", {
+        requestId,
+        candidateId,
+        existingDownloadJobId: existingDownloadJob.id,
+        existingCandidateId: existingDownloadJob.candidateId,
+      });
+
+      try {
+        await removeRequestTorrents(
+          requestId,
+          [existingDownloadJob.qbTorrentHash].filter((hash): hash is string => Boolean(hash)),
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown qBittorrent cleanup error.";
+        debugWarn("request-service", "Failed to clear existing torrents before manual candidate switch", {
+          requestId,
+          candidateId,
+          existingDownloadJobId: existingDownloadJob.id,
+          message,
+        });
+        throw new Error(`Failed to replace the current torrent: ${message}`);
+      }
+
+      await prisma.downloadJob.updateMany({
+        where: {
+          requestId,
+          status: {
+            in: ACTIVE_DOWNLOAD_STATUSES,
+          },
+        },
+        data: {
+          status: DownloadStatus.CANCELLED,
+          errorMessage: `Replaced by approved candidate ${candidateId}.`,
+          completedAt: new Date(),
+        },
+      });
+
+      if (existingDownloadJob.candidateId && existingDownloadJob.candidateId !== candidateId) {
+        await prisma.candidateTorrent.update({
+          where: { id: existingDownloadJob.candidateId },
+          data: {
+            status: CandidateStatus.REJECTED,
+            reason: "Replaced by a manually selected candidate.",
+          },
+        });
+      }
+    } else {
     debugWarn("request-service", "Reusing existing active download job for request", {
       requestId,
       candidateId,
@@ -193,6 +302,7 @@ async function startCandidateDownload(requestId: string, candidateId: string) {
     });
 
     return existingDownloadJob;
+    }
   }
 
   await addMagnetToQbittorrent({
@@ -216,7 +326,9 @@ async function startCandidateDownload(requestId: string, candidateId: string) {
   await prisma.candidateTorrent.update({
     where: { id: candidate.id },
     data: {
-      status: CandidateStatus.AUTO_SELECTED,
+      status: candidate.status === CandidateStatus.APPROVED
+        ? CandidateStatus.APPROVED
+        : CandidateStatus.AUTO_SELECTED,
     },
   });
 
@@ -295,17 +407,72 @@ export async function createBrowseDownload(input: {
   year?: number;
   userId: string;
   tmdbId?: number;
+  preferredResolution?: string;
+  selectedTorrent?: BrowseSelectedTorrentInput;
 }) {
+  const normalizedResolution = normalizeResolutionPreference(input.preferredResolution);
+  const noteSegments = ["Created from browse search."];
+
+  if (normalizedResolution) {
+    noteSegments.push(`${RESOLUTION_NOTE_PREFIX} ${normalizedResolution}.`);
+  }
+
+  if (input.selectedTorrent?.resolution) {
+    noteSegments.push(`Selected torrent: ${input.selectedTorrent.resolution}.`);
+  }
+
+  const browseNotes = noteSegments.join(" ");
+
   const request = await createMediaRequest({
     title: input.title,
     mediaType: input.mediaType,
     year: input.year,
     userId: input.userId,
     tmdbId: input.tmdbId,
-    notes: "Created from browse search.",
+    notes: browseNotes,
   });
 
+  if (input.selectedTorrent) {
+    const selectedCandidate = await prisma.candidateTorrent.create({
+      data: {
+        requestId: request.id,
+        source: "jackett",
+        indexerKey: input.selectedTorrent.indexerKey,
+        title: input.selectedTorrent.title,
+        magnetUri: input.selectedTorrent.magnetUri,
+        torrentUrl: input.selectedTorrent.torrentUrl,
+        sizeBytes: input.selectedTorrent.sizeBytes
+          ? BigInt(Math.max(0, Math.floor(input.selectedTorrent.sizeBytes)))
+          : null,
+        seeders: input.selectedTorrent.seeders,
+        peers: input.selectedTorrent.peers,
+        confidence: 1,
+        reason: "Selected manually from browse details.",
+        status: CandidateStatus.APPROVED,
+        rawPayload: {
+          selectedFrom: "browse-details",
+          resolution: input.selectedTorrent.resolution,
+        },
+      },
+    });
+
+    try {
+      await startCandidateDownload(request.id, selectedCandidate.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown selected torrent error.";
+
+      await prisma.mediaRequest.update({
+        where: { id: request.id },
+        data: {
+          status: RequestStatus.REVIEW,
+          aiConfidence: 1,
+          aiReason: `Selected torrent could not be started automatically: ${message}`,
+        },
+      });
+    }
+  } else {
   await searchAndMatchRequest(request.id);
+  }
 
   return prisma.mediaRequest.findUnique({
     where: { id: request.id },
@@ -393,6 +560,25 @@ export async function searchAndMatchRequest(requestId: string) {
     query: request.searchQuery ?? request.title,
   });
 
+  const preferredResolution = extractPreferredResolution(request.notes);
+  const resolutionFilteredCandidates = preferredResolution
+    ? candidates.filter((candidate) => candidateMatchesResolution(candidate.title, preferredResolution))
+    : candidates;
+  const candidatesForScoring =
+    preferredResolution && resolutionFilteredCandidates.length > 0
+      ? resolutionFilteredCandidates
+      : candidates;
+
+  if (preferredResolution) {
+    debugLog("request-service", "Applied resolution preference to candidate search", {
+      requestId,
+      preferredResolution,
+      matchingCandidates: resolutionFilteredCandidates.length,
+      fallbackToAllCandidates: resolutionFilteredCandidates.length === 0,
+      totalCandidates: candidates.length,
+    });
+  }
+
   if (candidates.length === 0) {
     const nextSearchAt = buildNextSearchAt(env.SEARCH_INTERVAL_MINUTES);
 
@@ -426,7 +612,7 @@ export async function searchAndMatchRequest(requestId: string) {
       year: request.year,
       mediaType: request.mediaType,
     },
-    candidates,
+    candidatesForScoring,
     {
       maxAiCandidates: env.OPENAI_MATCH_MAX_CANDIDATES,
       minHeuristicScore: env.OPENAI_MATCH_MIN_HEURISTIC,
@@ -505,7 +691,10 @@ export async function searchAndMatchRequest(requestId: string) {
     data: {
       status: nextStatus,
       aiConfidence: bestConfidence,
-      aiReason: bestCandidate.reason,
+      aiReason:
+        preferredResolution && resolutionFilteredCandidates.length === 0
+          ? `Preferred resolution ${preferredResolution} was not found; best available match selected. ${bestCandidate.reason}`
+          : bestCandidate.reason,
     },
   });
 
@@ -589,7 +778,9 @@ export async function approveCandidate(candidateId: string, userId: string) {
     candidateId,
     requestId: candidate.requestId,
   });
-  return startCandidateDownload(candidate.requestId, candidateId);
+  return startCandidateDownload(candidate.requestId, candidateId, {
+    replaceExisting: true,
+  });
 }
 
 export async function cancelMediaRequest(requestId: string, userId: string) {
@@ -846,6 +1037,100 @@ export async function syncDownloadJob(downloadJobId: string) {
     torrent.progress >= 1 ||
     torrent.state.toLowerCase().includes("upload") ||
     torrent.completion_on > 0;
+  const failed = isQbittorrentFailureState(torrent.state);
+
+  if (failed) {
+    const errorMessage = `qBittorrent reported torrent state "${torrent.state}".`;
+    let failedTorrentRemovalWarning: string | null = null;
+    const alternativeCandidateCount = downloadJob.requestId
+      ? await prisma.candidateTorrent.count({
+          where: {
+            requestId: downloadJob.requestId,
+            id: downloadJob.candidateId
+              ? {
+                  not: downloadJob.candidateId,
+                }
+              : undefined,
+            status: {
+              in: [CandidateStatus.PENDING, CandidateStatus.APPROVED, CandidateStatus.AUTO_SELECTED],
+            },
+          },
+        })
+      : 0;
+    const nextRequestStatus =
+      alternativeCandidateCount > 0 ? RequestStatus.REVIEW : RequestStatus.REQUESTED;
+    const requestReason =
+      alternativeCandidateCount > 0
+        ? `${errorMessage} Pick another torrent from the review list.`
+        : `${errorMessage} Mediapolis will search again automatically.`;
+
+    try {
+      await removeQbittorrentTorrents({
+        hashes: [torrent.hash],
+        deleteFiles: true,
+      });
+    } catch (error) {
+      failedTorrentRemovalWarning =
+        error instanceof Error
+          ? error.message
+          : "Unknown qBittorrent cleanup error for failed torrent.";
+      debugWarn("request-service", "Failed to remove errored qBittorrent torrent", {
+        downloadJobId,
+        requestId: downloadJob.requestId,
+        torrentHash: torrent.hash,
+        warning: failedTorrentRemovalWarning,
+      });
+    }
+
+    await prisma.downloadJob.update({
+      where: { id: downloadJob.id },
+      data: {
+        qbTorrentHash: torrent.hash,
+        downloadPath: resolveTorrentDownloadPath(torrent),
+        bytesDownloaded: BigInt(Math.round(torrent.total_size * torrent.progress)),
+        bytesTotal: BigInt(torrent.total_size),
+        progress: torrent.progress,
+        status: DownloadStatus.FAILED,
+        errorMessage: failedTorrentRemovalWarning
+          ? `${errorMessage} qBittorrent cleanup warning: ${failedTorrentRemovalWarning}`
+          : errorMessage,
+        completedAt: new Date(),
+      },
+    });
+
+    if (downloadJob.requestId) {
+      if (downloadJob.candidateId) {
+        await prisma.candidateTorrent.update({
+          where: { id: downloadJob.candidateId },
+          data: {
+            status: CandidateStatus.REJECTED,
+            reason: errorMessage,
+          },
+        });
+      }
+
+      await prisma.mediaRequest.update({
+        where: { id: downloadJob.requestId },
+        data: {
+          status: nextRequestStatus,
+          aiReason: requestReason,
+          nextSearchAt: nextRequestStatus === RequestStatus.REQUESTED ? new Date() : null,
+        },
+      });
+    }
+
+    debugWarn("request-service", "Download sync marked torrent as failed and queued recovery", {
+      downloadJobId,
+      requestId: downloadJob.requestId,
+      torrentHash: torrent.hash,
+      state: torrent.state,
+      progress: torrent.progress,
+      nextRequestStatus,
+      alternativeCandidateCount,
+      failedTorrentRemovalWarning,
+    });
+    return torrent;
+  }
 
   const existingJobWithHash = await prisma.downloadJob.findFirst({
     where: {
@@ -1094,7 +1379,7 @@ export async function getDownloadFeed() {
   const jobs = await prisma.downloadJob.findMany({
     where: {
       status: {
-        in: ACTIVE_DOWNLOAD_STATUSES,
+        in: VISIBLE_DOWNLOAD_FEED_STATUSES,
       },
     },
     orderBy: [{ progress: "desc" }, { updatedAt: "desc" }],
@@ -1112,6 +1397,7 @@ export async function getDownloadFeed() {
       progress: job.progress ?? 0,
       updatedAt: job.updatedAt.toISOString(),
       path: job.downloadPath,
+      errorMessage: job.errorMessage,
     }))
     .sort((left, right) => {
       if (right.progress !== left.progress) {

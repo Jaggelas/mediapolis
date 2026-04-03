@@ -10,6 +10,19 @@ const browseDownloadSchema = z.object({
   mediaType: z.nativeEnum(MediaType),
   year: z.number().int().min(1900).max(2100).optional(),
   tmdbId: z.number().int().positive().optional(),
+  preferredResolution: z.enum(["2160p", "1440p", "1080p", "720p", "576p", "480p"]).optional(),
+  selectedTorrent: z
+    .object({
+      title: z.string().trim().min(1),
+      magnetUri: z.string().trim().min(1),
+      torrentUrl: z.string().trim().url().optional(),
+      indexerKey: z.string().trim().min(1).optional(),
+      seeders: z.number().int().min(0).optional(),
+      peers: z.number().int().min(0).optional(),
+      sizeBytes: z.number().int().min(0).optional(),
+      resolution: z.string().trim().min(1).optional(),
+    })
+    .optional(),
 });
 
 function getBrowseStatusMessage(status: RequestStatus) {

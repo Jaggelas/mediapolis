@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ExternalLink, LoaderCircle, Search, X } from "lucide-react";
 import { MediaType, RequestStatus } from "@/src/generated/prisma/enums";
 import { debugError, debugLog } from "@/src/lib/debug-log";
-import { cn } from "@/src/lib/utils";
+import { cn, formatBytes } from "@/src/lib/utils";
 
 type BrowseResult = {
   tmdbId: number;
@@ -53,6 +53,16 @@ type BrowseDetails = {
     candidateCount: number;
     maxSeeders: number;
     resolutions: string[];
+    topTorrents: Array<{
+      title: string;
+      magnetUri?: string;
+      torrentUrl?: string;
+      indexerKey?: string;
+      seeders?: number;
+      peers?: number;
+      sizeBytes?: number;
+      resolution?: string;
+    }>;
     query: string;
     error?: string;
   };
@@ -74,6 +84,10 @@ type DownloadResponse = {
   error?: string;
 };
 
+const resolutionOptions = ["2160p", "1440p", "1080p", "720p", "576p", "480p"] as const;
+type ResolutionOption = (typeof resolutionOptions)[number];
+type ResolutionSelection = ResolutionOption | "ANY";
+
 const typeLabel: Record<MediaType, string> = {
   [MediaType.MOVIE]: "Movie",
   [MediaType.SHOW]: "TV Series",
@@ -92,6 +106,10 @@ export function BrowseSearch() {
   const [query, setQuery] = useState("");
   const [mediaType, setMediaType] = useState<MediaType>(MediaType.MOVIE);
   const [genres, setGenres] = useState<BrowseGenre[]>([]);
+  const [genreLookup, setGenreLookup] = useState<Record<MediaType, Record<number, string>>>({
+    [MediaType.MOVIE]: {},
+    [MediaType.SHOW]: {},
+  });
   const [genreId, setGenreId] = useState("");
   const [year, setYear] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("popular");
@@ -108,6 +126,7 @@ export function BrowseSearch() {
   const [details, setDetails] = useState<BrowseDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState("");
+  const [preferredResolution, setPreferredResolution] = useState<ResolutionSelection>("ANY");
 
   const trimmedQuery = query.trim();
   const hasShortQuery = trimmedQuery.length === 1;
@@ -153,29 +172,59 @@ export function BrowseSearch() {
   );
   const showDetailsSkeleton = detailsLoading && !details && !detailsError;
 
+  const getResultGenres = useMemo(
+    () => (result: BrowseResult) =>
+      result.genreIds
+        .map((id) => genreLookup[result.mediaType][id])
+        .filter((name): name is string => Boolean(name))
+        .slice(0, 3),
+    [genreLookup],
+  );
+
   useEffect(() => {
     const controller = new AbortController();
+
+    async function fetchGenresFor(nextMediaType: MediaType) {
+      const searchParams = new URLSearchParams({ mediaType: nextMediaType });
+      const response = await fetch(`/api/browse/genres?${searchParams.toString()}`, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      const payload = (await response.json().catch(() => null)) as GenreResponse | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Failed to load genres.");
+      }
+
+      return payload?.genres ?? [];
+    }
 
     async function loadGenres() {
       setGenresLoading(true);
 
       try {
-        const searchParams = new URLSearchParams({ mediaType });
-        const response = await fetch(`/api/browse/genres?${searchParams.toString()}`, {
-          signal: controller.signal,
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => null)) as GenreResponse | null;
+        const [movieGenres, showGenres] = await Promise.all([
+          fetchGenresFor(MediaType.MOVIE),
+          fetchGenresFor(MediaType.SHOW),
+        ]);
 
-        if (!response.ok) {
-          throw new Error(payload?.error ?? "Failed to load genres.");
+        if (controller.signal.aborted) {
+          return;
         }
 
-        setGenres(payload?.genres ?? []);
+        setGenreLookup({
+          [MediaType.MOVIE]: Object.fromEntries(movieGenres.map((genre) => [genre.id, genre.name])),
+          [MediaType.SHOW]: Object.fromEntries(showGenres.map((genre) => [genre.id, genre.name])),
+        });
+        setGenres(mediaType === MediaType.MOVIE ? movieGenres : showGenres);
       } catch (genreError) {
         if (!controller.signal.aborted) {
           debugError("browse-search", "Genre lookup failed", genreError);
           setGenres([]);
+          setGenreLookup({
+            [MediaType.MOVIE]: {},
+            [MediaType.SHOW]: {},
+          });
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -343,12 +392,25 @@ export function BrowseSearch() {
     };
   }, [selectedResult]);
 
+  useEffect(() => {
+    if (!details?.torrentAvailability || preferredResolution === "ANY") {
+      return;
+    }
+
+    const availableResolutions = details.torrentAvailability.resolutions;
+    if (!availableResolutions.includes(preferredResolution)) {
+      setPreferredResolution("ANY");
+    }
+  }, [details, preferredResolution]);
+
   function openDetails(result: BrowseResult) {
     setSelectedResult(result);
+    setPreferredResolution("ANY");
   }
 
   function closeDetails() {
     setSelectedResult(null);
+    setPreferredResolution("ANY");
   }
 
   function formatRuntime(minutes?: number) {
@@ -370,7 +432,7 @@ export function BrowseSearch() {
     return `${hours}h ${remainingMinutes}m`;
   }
 
-  async function handleDownload(result: BrowseResult) {
+  async function handleDownload(result: BrowseResult, resolutionPreference?: ResolutionOption) {
     setDownloadingId(result.tmdbId);
     setFeedback("");
     setError("");
@@ -380,6 +442,7 @@ export function BrowseSearch() {
       title: result.title,
       mediaType: result.mediaType,
       year: result.year ?? null,
+      preferredResolution: resolutionPreference ?? null,
     });
 
     try {
@@ -393,6 +456,7 @@ export function BrowseSearch() {
           title: result.title,
           year: result.year,
           mediaType: result.mediaType,
+          preferredResolution: resolutionPreference,
         }),
       });
       const payload = (await response.json().catch(() => null)) as DownloadResponse | null;
@@ -407,6 +471,60 @@ export function BrowseSearch() {
       const message =
         downloadError instanceof Error ? downloadError.message : "Unexpected download error.";
       debugError("browse-search", "Browse download failed", downloadError);
+      setError(message);
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  async function handleCandidateDownload(
+    result: BrowseResult,
+    candidate: NonNullable<BrowseDetails["torrentAvailability"]>["topTorrents"][number],
+  ) {
+    if (!candidate.magnetUri) {
+      setError("This torrent does not expose a magnet link for direct download.");
+      return;
+    }
+
+    setDownloadingId(result.tmdbId);
+    setFeedback("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/browse/download", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          tmdbId: result.tmdbId,
+          title: result.title,
+          year: result.year,
+          mediaType: result.mediaType,
+          selectedTorrent: {
+            title: candidate.title,
+            magnetUri: candidate.magnetUri,
+            torrentUrl: candidate.torrentUrl,
+            indexerKey: candidate.indexerKey,
+            seeders: candidate.seeders,
+            peers: candidate.peers,
+            sizeBytes: candidate.sizeBytes,
+            resolution: candidate.resolution,
+          },
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as DownloadResponse | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Failed to start selected torrent.");
+      }
+
+      setFeedback(payload?.message ?? "Selected torrent was added successfully.");
+      router.refresh();
+    } catch (downloadError) {
+      const message =
+        downloadError instanceof Error ? downloadError.message : "Unexpected selected torrent error.";
+      debugError("browse-search", "Selected browse torrent download failed", downloadError);
       setError(message);
     } finally {
       setDownloadingId(null);
@@ -640,6 +758,7 @@ export function BrowseSearch() {
             <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
               {results.map((result) => {
                 const isDownloading = downloadingId === result.tmdbId;
+                const resultGenres = getResultGenres(result);
 
                 return (
                   <article
@@ -656,20 +775,23 @@ export function BrowseSearch() {
                     tabIndex={0}
                   >
                     <div className="grid gap-0 sm:grid-cols-[132px_minmax(0,1fr)]">
-                      <div className="relative overflow-hidden border-b border-white/10 bg-slate-900/80 sm:border-b-0 sm:border-r">
+                      <div className="relative aspect-2/3 w-full overflow-hidden border-b border-white/10 bg-slate-950/90 sm:aspect-auto sm:h-full sm:min-h-0 sm:border-b-0 sm:border-r">
                         {result.posterUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={result.posterUrl}
                             alt={`${result.title} poster`}
-                            className="aspect-video h-full w-full object-cover transition duration-500 group-hover:scale-[1.03] sm:aspect-2/3"
+                            className="h-full w-full object-cover object-top transition duration-500 group-hover:scale-[1.03]"
                           />
                         ) : (
-                          <div className="flex aspect-video items-center justify-center bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.22),transparent_55%)] px-4 text-center text-xs font-semibold uppercase tracking-[0.24em] text-slate-400 sm:aspect-2/3">
+                          <div className="flex h-full min-h-48 items-center justify-center bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.22),transparent_55%)] px-4 text-center text-xs font-semibold uppercase tracking-[0.24em] text-slate-400 sm:min-h-0">
                             No poster
                           </div>
                         )}
-                        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-slate-950/60 to-transparent sm:hidden" />
+                        <div
+                          aria-hidden
+                          className="pointer-events-none absolute inset-x-0 bottom-0 z-1 h-[42%] min-h-14 bg-linear-to-t from-[rgb(15,23,42)] via-[rgb(15,23,42)]/45 to-transparent sm:h-[36%] sm:min-h-20 sm:from-[rgb(2,6,23)] sm:via-[rgb(15,23,42)]/40"
+                        />
                       </div>
 
                       <div className="flex min-w-0 flex-col p-4 sm:p-5">
@@ -691,7 +813,7 @@ export function BrowseSearch() {
                           ) : null}
                           {typeof result.voteAverage === "number" && result.voteAverage > 0 ? (
                             <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-200">
-                              {result.voteAverage.toFixed(1)} rating
+                              {result.voteAverage.toFixed(1)}
                             </span>
                           ) : null}
                         </div>
@@ -699,11 +821,23 @@ export function BrowseSearch() {
                         <h4 className="mt-3 text-lg font-semibold leading-tight tracking-tight text-white sm:text-xl">
                           {result.title}
                         </h4>
+                        {resultGenres.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {resultGenres.map((genreName) => (
+                              <span
+                                key={`${result.tmdbId}-${genreName}`}
+                                className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-slate-300"
+                              >
+                                {genreName}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         <p className="mt-3 line-clamp-5 text-sm leading-6 text-slate-400">
                           {result.overview || "No overview available for this title."}
                         </p>
 
-                        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
                           <button
                             type="button"
                             onClick={(event) => {
@@ -715,7 +849,6 @@ export function BrowseSearch() {
                           >
                             {isDownloading ? "Starting..." : "Download"}
                           </button>
-                          <span className="text-sm text-slate-500">Tap anywhere for details.</span>
                         </div>
                       </div>
                     </div>
@@ -1056,16 +1189,87 @@ export function BrowseSearch() {
                           </div>
                         </div>
                       ) : null}
+                      <label className="mt-4 grid gap-2 text-sm text-slate-300">
+                        Preferred resolution
+                        <select
+                          value={preferredResolution}
+                          onChange={(event) =>
+                            setPreferredResolution(event.target.value as ResolutionSelection)
+                          }
+                          className="min-h-11 rounded-2xl border border-white/10 bg-slate-950/65 px-4 py-2.5 text-sm text-white outline-none"
+                        >
+                          <option value="ANY">Best available (any resolution)</option>
+                          {resolutionOptions.map((resolution) => (
+                            <option
+                              key={resolution}
+                              value={resolution}
+                              disabled={
+                                !details?.torrentAvailability?.error &&
+                                Boolean(details?.torrentAvailability?.available) &&
+                                !details?.torrentAvailability?.resolutions.includes(resolution)
+                              }
+                            >
+                              {resolution}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <p className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-500">
                         Query used: {details.torrentAvailability.query}
                       </p>
+
+                      {details.torrentAvailability.topTorrents.length > 0 ? (
+                        <div className="mt-5">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                            Top torrents (click to download)
+                          </div>
+                          <div className="mt-3 grid gap-2">
+                            {details.torrentAvailability.topTorrents.map((torrent, index) => (
+                              <button
+                                key={`${torrent.title}-${index}`}
+                                type="button"
+                                onClick={() => handleCandidateDownload(selectedResult, torrent)}
+                                disabled={downloadingId === selectedResult.tmdbId || !torrent.magnetUri}
+                                className="group rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-left transition hover:border-white/20 hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-55"
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {torrent.resolution ? (
+                                    <span className="rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-100">
+                                      {torrent.resolution}
+                                    </span>
+                                  ) : null}
+                                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                                    {torrent.seeders ?? 0} seeders
+                                  </span>
+                                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                                    {formatBytes(torrent.sizeBytes)}
+                                  </span>
+                                  {!torrent.magnetUri ? (
+                                    <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+                                      No magnet
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="mt-2 line-clamp-2 text-sm font-medium text-white">
+                                  {torrent.title}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
 
                   <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
                     <button
                       type="button"
-                      onClick={() => handleDownload(selectedResult)}
+                      onClick={() =>
+                        handleDownload(
+                          selectedResult,
+                          preferredResolution === "ANY" ? undefined : preferredResolution,
+                        )
+                      }
                       disabled={downloadingId === selectedResult.tmdbId}
                       className="inline-flex min-h-12 items-center justify-center rounded-full bg-sky-400 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:-translate-y-0.5 hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-60"
                     >

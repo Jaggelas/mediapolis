@@ -11,10 +11,19 @@ type DownloadFeedItem = {
   progress: number;
   updatedAt: string;
   path?: string | null;
+  errorMessage?: string | null;
 };
 
 function sortDownloadFeedItems(items: DownloadFeedItem[]) {
   return [...items].sort((left, right) => {
+    if (left.status === "FAILED" && right.status !== "FAILED") {
+      return -1;
+    }
+
+    if (right.status === "FAILED" && left.status !== "FAILED") {
+      return 1;
+    }
+
     if (right.progress !== left.progress) {
       return right.progress - left.progress;
     }
@@ -45,7 +54,7 @@ export function DownloadFeed({ initialItems }: { initialItems: DownloadFeedItem[
     <div className="grid gap-4">
       {items.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-white/10 bg-slate-950/20 px-5 py-8 text-center text-sm text-slate-400">
-          No active downloads right now. Finished items disappear after they are moved into the Plex library.
+          No active or failed downloads right now. Finished items disappear after they are moved into the Plex library.
         </div>
       ) : null}
       {items.map((item) => (
@@ -59,6 +68,9 @@ export function DownloadFeed({ initialItems }: { initialItems: DownloadFeedItem[
               <p className="mt-1 break-all text-sm text-slate-400">
                 {item.path ?? "Waiting for qBittorrent path"}
               </p>
+              {item.errorMessage ? (
+                <p className="mt-2 text-sm text-rose-300">{item.errorMessage}</p>
+              ) : null}
             </div>
             <StatusPill value={item.status} />
           </div>

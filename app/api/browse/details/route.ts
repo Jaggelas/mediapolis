@@ -38,6 +38,16 @@ function getAvailableResolutions(titles: string[]) {
     .filter((resolution) => resolutions.has(resolution));
 }
 
+function getCandidateResolution(title: string) {
+  for (const matcher of resolutionMatchers) {
+    if (matcher.pattern.test(title)) {
+      return matcher.label;
+    }
+  }
+
+  return undefined;
+}
+
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
@@ -71,6 +81,16 @@ export async function GET(request: Request) {
           candidateCount: number;
           maxSeeders: number;
           resolutions: string[];
+          topTorrents: Array<{
+            title: string;
+            magnetUri?: string;
+            torrentUrl?: string;
+            indexerKey?: string;
+            seeders?: number;
+            peers?: number;
+            sizeBytes?: number;
+            resolution?: string;
+          }>;
           query: string;
           error?: string;
         }
@@ -85,6 +105,19 @@ export async function GET(request: Request) {
         candidateCount: candidates.length,
         maxSeeders: Math.max(0, ...candidates.map((candidate) => candidate.seeders ?? 0)),
         resolutions: getAvailableResolutions(candidates.map((candidate) => candidate.title)),
+        topTorrents: [...candidates]
+          .sort((left, right) => (right.seeders ?? 0) - (left.seeders ?? 0))
+          .slice(0, 10)
+          .map((candidate) => ({
+            title: candidate.title,
+            magnetUri: candidate.magnetUri,
+            torrentUrl: candidate.torrentUrl,
+            indexerKey: candidate.indexerKey,
+            seeders: candidate.seeders ?? 0,
+            peers: candidate.peers ?? 0,
+            sizeBytes: candidate.sizeBytes,
+            resolution: getCandidateResolution(candidate.title),
+          })),
         query,
       };
     } catch (availabilityError) {
@@ -97,6 +130,7 @@ export async function GET(request: Request) {
         candidateCount: 0,
         maxSeeders: 0,
         resolutions: [],
+        topTorrents: [],
         query,
         error: message,
       };

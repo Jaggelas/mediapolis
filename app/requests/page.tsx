@@ -2,7 +2,7 @@ import { AppShell } from "@/src/components/app-shell";
 import { ChevronDown } from "lucide-react";
 import { RequestLauncher } from "@/src/components/request-launcher";
 import { StatusPill } from "@/src/components/status-pill";
-import { DownloadStatus, RequestStatus } from "@/src/generated/prisma/enums";
+import { CandidateStatus, DownloadStatus, RequestStatus } from "@/src/generated/prisma/enums";
 import { prisma } from "@/src/lib/db";
 import { requireSession } from "@/src/lib/session";
 import { formatBytes, formatPercent, formatRelativeDate } from "@/src/lib/utils";
@@ -19,6 +19,11 @@ export default async function RequestsPage() {
     take: 20,
     include: {
       candidates: {
+        where: {
+          status: {
+            not: CandidateStatus.REJECTED,
+          },
+        },
         orderBy: [{ confidence: "desc" }, { createdAt: "desc" }],
         take: 3,
       },
@@ -30,6 +35,7 @@ export default async function RequestsPage() {
               DownloadStatus.MATCHED,
               DownloadStatus.DOWNLOADING,
               DownloadStatus.ORGANIZING,
+              DownloadStatus.FAILED,
             ],
           },
         },
@@ -182,6 +188,9 @@ export default async function RequestsPage() {
                         <span className="hidden h-1 w-1 rounded-full bg-slate-600 sm:inline-block" />
                         <span>{getLatestDownload(request)?.status ?? "DOWNLOADING"}</span>
                       </div>
+                      {getLatestDownload(request)?.errorMessage ? (
+                        <p className="mt-2 text-xs text-rose-300">{getLatestDownload(request)?.errorMessage}</p>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -217,13 +226,15 @@ export default async function RequestsPage() {
                             </p>
                           </div>
 
-                          {request.status === "REVIEW" ? (
+                          {candidate.magnetUri && candidate.status !== "REJECTED" ? (
                             <form action={`/api/candidates/${candidate.id}/approve`} method="post">
                               <button
                                 type="submit"
                                 className="rounded-full bg-sky-400 px-3.5 py-1.5 text-sm font-semibold text-slate-950 shadow-[0_10px_24px_rgba(56,189,248,0.18)] transition hover:bg-sky-300"
                               >
-                                Approve
+                                {request.status === "DOWNLOADING" || request.status === "ORGANIZING"
+                                  ? "Use Instead"
+                                  : "Approve"}
                               </button>
                             </form>
                           ) : null}
