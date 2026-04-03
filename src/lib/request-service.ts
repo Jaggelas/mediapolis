@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, rm } from "node:fs/promises";
 import path from "node:path";
 import { CandidateStatus, DownloadSource, DownloadStatus, MediaFileStatus, MediaType, RequestStatus } from "@/src/generated/prisma/enums";
 import { prisma } from "@/src/lib/db";
@@ -903,6 +903,98 @@ export async function cancelMediaRequest(requestId: string, userId: string) {
   return prisma.mediaRequest.findUnique({
     where: { id: request.id },
   });
+}
+
+export async function removeDownloadedMovieFromDisk(requestId: string, userId: string) {
+  debugLog("request-service", "Removing downloaded movie from disk", {
+    userId,
+    requestId,
+  });
+
+  const request = await prisma.mediaRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      mediaFiles: {
+        orderBy: { createdAt: "desc" },
+      },
+    },
+  });
+
+  if (!request) {
+    debugWarn("request-service", "Disk removal failed because request was not found", {
+      requestId,
+    });
+    throw new Error("Request not found.");
+  }
+
+  if (request.mediaType !== MediaType.MOVIE) {
+    debugWarn("request-service", "Disk removal rejected because request is not a movie", {
+      requestId,
+      mediaType: request.mediaType,
+    });
+    throw new Error("Only movie files can be removed from this action.");
+  }
+
+  if (request.status !== RequestStatus.COMPLETED) {
+    debugWarn("request-service", "Disk removal rejected because request is not completed", {
+      requestId,
+      status: request.status,
+    });
+    throw new Error("Only completed movie requests can be removed from disk.");
+  }
+
+  if (request.mediaFiles.length === 0) {
+    debugWarn("request-service", "Disk removal failed because no media file was found", {
+      requestId,
+    });
+    throw new Error("No downloaded movie file was found for this request.");
+  }
+
+  const removablePaths = [...new Set(
+    request.mediaFiles.flatMap((mediaFile) => [mediaFile.destinationPath, mediaFile.sourcePath]),
+  )];
+
+  for (const removablePath of removablePaths) {
+    try {
+      await rm(removablePath, { force: true, recursive: true });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown file removal error.";
+      debugWarn("request-service", "Failed to remove one of the movie files from disk", {
+        requestId,
+        removablePath,
+        message,
+      });
+      throw new Error(`Failed to remove file from disk (${removablePath}): ${message}`);
+    }
+  }
+
+  await prisma.mediaFile.deleteMany({
+    where: {
+      requestId: request.id,
+      mediaType: MediaType.MOVIE,
+    },
+  });
+
+  await createAuditLog({
+    userId,
+    requestId: request.id,
+    action: "movie.removed_from_disk",
+    entityType: "MediaRequest",
+    entityId: request.id,
+    details: {
+      title: request.title,
+      fileCount: request.mediaFiles.length,
+      paths: removablePaths,
+    },
+  });
+
+  debugLog("request-service", "Movie removed from disk", {
+    requestId,
+    fileCount: request.mediaFiles.length,
+  });
+
+  return request;
 }
 
 export async function createManualDownload(input: {
