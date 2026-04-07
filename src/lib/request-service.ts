@@ -1098,8 +1098,9 @@ export async function createManualDownload(input: {
     hasMagnetUri: Boolean(input.magnetUri),
     torrentFileName: input.torrentFile?.name ?? input.fileName ?? null,
   });
+  const providedRequestTitle = input.requestTitle?.trim() || "";
   const titleBasis =
-    input.requestTitle?.trim() ||
+    providedRequestTitle ||
     input.fileName?.replace(/\.torrent$/i, "") ||
     "Imported media";
   const mediaType = input.mediaType ?? inferMediaTypeFromName(titleBasis);
@@ -1146,6 +1147,50 @@ export async function createManualDownload(input: {
       downloadRoot: getEnv().DOWNLOADS_INCOMING_DIR,
     },
   });
+
+  let qbTorrentHash: string | null = null;
+  let qbTorrentName: string | null = null;
+
+  try {
+    const matchingTorrents = await listQbittorrentTorrents(qbCategory);
+    const match =
+      matchingTorrents.find((item) =>
+        titleBasis ? item.name.includes(titleBasis) : true,
+      ) ?? matchingTorrents[0] ?? null;
+
+    if (match) {
+      qbTorrentHash = match.hash;
+      qbTorrentName = match.name;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown qBittorrent lookup error.";
+    debugWarn("request-service", "Failed to read qBittorrent torrent name for manual download", {
+      requestId: request.id,
+      qbCategory,
+      message,
+    });
+  }
+
+  const shouldReplaceTitleWithTorrentName = !providedRequestTitle && Boolean(qbTorrentName?.trim());
+
+  if (qbTorrentHash || shouldReplaceTitleWithTorrentName) {
+    await prisma.downloadJob.update({
+      where: { id: downloadJob.id },
+      data: {
+        qbTorrentHash: qbTorrentHash ?? undefined,
+        inputName: shouldReplaceTitleWithTorrentName ? qbTorrentName!.trim() : undefined,
+      },
+    });
+  }
+
+  if (shouldReplaceTitleWithTorrentName) {
+    await prisma.mediaRequest.update({
+      where: { id: request.id },
+      data: {
+        title: qbTorrentName!.trim(),
+      },
+    });
+  }
 
   await prisma.mediaRequest.update({
     where: { id: request.id },
