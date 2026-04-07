@@ -29,6 +29,12 @@ enum RequestStatus {
   CANCELLED
 }
 
+enum RequestScope {
+  TITLE
+  SEASON
+  SERIES
+}
+
 enum CandidateStatus {
   PENDING
   AUTO_SELECTED
@@ -84,6 +90,8 @@ model MediaRequest {
   normalizedTitle       String
   year                  Int?
   mediaType             MediaType
+  scope                 RequestScope       @default(TITLE)
+  seasonNumber          Int?
   status                RequestStatus      @default(REQUESTED)
   notes                 String?
   qualityProfile        String?
@@ -105,6 +113,7 @@ model MediaRequest {
   @@index([requestedById])
   @@index([status, nextSearchAt])
   @@index([mediaType, title, year])
+  @@index([mediaType, scope])
 }
 
 model CandidateTorrent {

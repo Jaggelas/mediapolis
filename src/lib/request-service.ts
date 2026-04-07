@@ -1,13 +1,21 @@
 import { access, rm } from "node:fs/promises";
 import path from "node:path";
-import { CandidateStatus, DownloadSource, DownloadStatus, MediaFileStatus, MediaType, RequestStatus } from "@/src/generated/prisma/enums";
+import {
+  CandidateStatus,
+  DownloadSource,
+  DownloadStatus,
+  MediaFileStatus,
+  MediaType,
+  RequestScope,
+  RequestStatus,
+} from "@/src/generated/prisma/enums";
 import { prisma } from "@/src/lib/db";
 import { debugLog, debugWarn } from "@/src/lib/debug-log";
 import { getEnv } from "@/src/lib/env";
 import { createAuditLog } from "@/src/lib/audit-log";
 import { planCandidateScoring, scoreCandidateWithAi } from "@/src/lib/ai-matcher";
 import { searchJackett } from "@/src/lib/jackett";
-import { moveIntoPlexLibrary, resolveDestinationPath } from "@/src/lib/media-organizer";
+import { moveIntoPlexLibrary, moveShowEpisodesIntoPlexLibrary, resolveDestinationPath } from "@/src/lib/media-organizer";
 import { addMagnetToQbittorrent, addTorrentFileToQbittorrent, getQbittorrentTorrent, listQbittorrentTorrents, removeQbittorrentTorrents } from "@/src/lib/qbittorrent";
 import { determineSearchOutcomeStatus } from "@/src/lib/request-lifecycle";
 import { buildSearchQuery, inferEpisode, inferYear, normalizeTitle } from "@/src/lib/title-utils";
@@ -20,6 +28,8 @@ type CreateRequestInput = {
   notes?: string;
   userId: string;
   tmdbId?: number;
+  scope?: RequestScope;
+  seasonNumber?: number;
 };
 
 type BrowseSelectedTorrentInput = {
@@ -44,7 +54,35 @@ const ACTIVE_DOWNLOAD_STATUSES = [
   DownloadStatus.ORGANIZING,
 ];
 
-const VISIBLE_DOWNLOAD_FEED_STATUSES = [...ACTIVE_DOWNLOAD_STATUSES, DownloadStatus.FAILED];
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function buildScopedSearchQuery(input: {
+  title: string;
+  year?: number;
+  mediaType: MediaType;
+  scope: RequestScope;
+  seasonNumber?: number;
+}) {
+  const base = buildSearchQuery(input.title, input.year);
+
+  if (input.mediaType !== MediaType.SHOW) {
+    return base;
+  }
+
+  if (input.scope === RequestScope.SEASON) {
+    const season = Math.max(1, Math.floor(input.seasonNumber ?? 1));
+    const tokens = [`S${pad2(season)}`, `Season ${season}`];
+    return `${base} ${tokens.join(" ")}`.trim();
+  }
+
+  if (input.scope === RequestScope.SERIES) {
+    return `${base} complete series complete`.trim();
+  }
+
+  return base;
+}
 
 function inferMediaTypeFromName(input: string) {
   return inferEpisode(input) ? MediaType.SHOW : MediaType.MOVIE;
@@ -151,15 +189,30 @@ async function findActiveDownloadJobForRequest(requestId: string) {
   });
 }
 
-async function removeRequestTorrents(requestId: string, knownHashes: string[] = []) {
-  const qbCategory = buildQbCategory(requestId);
+async function removeRequestTorrents(input: {
+  requestId: string;
+  knownHashes?: string[];
+  knownCategories?: Array<string | null | undefined>;
+}) {
+  const qbCategories = [...new Set(
+    [buildQbCategory(input.requestId), ...(input.knownCategories ?? [])]
+      .map((category) => category?.trim())
+      .filter((category): category is string => Boolean(category)),
+  )];
   debugLog("request-service", "Removing request torrents", {
-    requestId,
-    qbCategory,
-    knownHashCount: knownHashes.filter(Boolean).length,
+    requestId: input.requestId,
+    qbCategories,
+    knownHashCount: (input.knownHashes ?? []).filter(Boolean).length,
   });
-  const torrents = await listQbittorrentTorrents(qbCategory);
-  const hashes = [...new Set([...knownHashes.filter(Boolean), ...torrents.map((torrent) => torrent.hash)])];
+
+  const torrentsByCategory = await Promise.all(
+    qbCategories.map((qbCategory) => listQbittorrentTorrents(qbCategory)),
+  );
+
+  const hashes = [...new Set([
+    ...(input.knownHashes ?? []).filter(Boolean),
+    ...torrentsByCategory.flatMap((torrents) => torrents.map((torrent) => torrent.hash)),
+  ])];
 
   if (hashes.length > 0) {
     await removeQbittorrentTorrents({
@@ -247,10 +300,11 @@ async function startCandidateDownload(
       });
 
       try {
-        await removeRequestTorrents(
+        await removeRequestTorrents({
           requestId,
-          [existingDownloadJob.qbTorrentHash].filter((hash): hash is string => Boolean(hash)),
-        );
+          knownHashes: [existingDownloadJob.qbTorrentHash].filter((hash): hash is string => Boolean(hash)),
+          knownCategories: [existingDownloadJob.qbCategory],
+        });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown qBittorrent cleanup error.";
@@ -356,6 +410,21 @@ export async function createMediaRequest(input: CreateRequestInput) {
     year: input.year ?? null,
   });
   const normalizedTitle = normalizeTitle(input.title);
+  const scope = input.scope ?? RequestScope.TITLE;
+
+  if (input.mediaType === MediaType.MOVIE) {
+    if (scope !== RequestScope.TITLE || input.seasonNumber) {
+      throw new Error("Movie requests only support title scope.");
+    }
+  } else {
+    if (scope === RequestScope.SEASON && !input.seasonNumber) {
+      throw new Error("Season requests require a season number.");
+    }
+    if (scope !== RequestScope.SEASON && input.seasonNumber) {
+      throw new Error("seasonNumber is only allowed for season-scoped show requests.");
+    }
+  }
+
   const tmdbMatch = input.tmdbId
     ? { tmdbId: input.tmdbId }
     : await resolveTmdbMatch({
@@ -371,9 +440,17 @@ export async function createMediaRequest(input: CreateRequestInput) {
       normalizedTitle,
       year: input.year,
       mediaType: input.mediaType,
+      scope,
+      seasonNumber: scope === RequestScope.SEASON ? input.seasonNumber : null,
       notes: input.notes,
       tmdbId: tmdbMatch?.tmdbId,
-      searchQuery: buildSearchQuery(input.title.trim(), input.year),
+      searchQuery: buildScopedSearchQuery({
+        title: input.title.trim(),
+        year: input.year,
+        mediaType: input.mediaType,
+        scope,
+        seasonNumber: input.seasonNumber,
+      }),
       nextSearchAt: new Date(),
       autoDownloadThreshold: getEnv().AUTO_DOWNLOAD_THRESHOLD,
     },
@@ -817,28 +894,13 @@ export async function cancelMediaRequest(requestId: string, userId: string) {
     return request;
   }
 
-  let torrentCleanupWarning: string | null = null;
-
-  try {
-    await removeRequestTorrents(
-      request.id,
-      request.downloads
-        .map((download) => download.qbTorrentHash)
-        .filter((hash): hash is string => Boolean(hash)),
-    );
-  } catch (error) {
-    torrentCleanupWarning =
-      error instanceof Error
-        ? error.message
-        : "Unknown qBittorrent cleanup error during cancellation.";
-    console.warn(
-      `Failed to remove qBittorrent torrents for request ${request.id}: ${torrentCleanupWarning}`,
-    );
-    debugWarn("request-service", "qBittorrent cleanup during cancellation failed", {
-      requestId,
-      warning: torrentCleanupWarning,
-    });
-  }
+  await removeRequestTorrents({
+    requestId: request.id,
+    knownHashes: request.downloads
+      .map((download) => download.qbTorrentHash)
+      .filter((hash): hash is string => Boolean(hash)),
+    knownCategories: request.downloads.map((download) => download.qbCategory),
+  });
 
   await prisma.$transaction([
     prisma.mediaRequest.update({
@@ -892,13 +954,11 @@ export async function cancelMediaRequest(requestId: string, userId: string) {
     details: {
       title: request.title,
       previousStatus: request.status,
-      torrentCleanupWarning,
     },
   });
 
   debugLog("request-service", "Cancellation completed", {
     requestId,
-    torrentCleanupWarning,
   });
   return prisma.mediaRequest.findUnique({
     where: { id: request.id },
@@ -1347,22 +1407,45 @@ export async function postProcessDownload(downloadJobId: string) {
   const destinationAlreadyExists = await pathExists(previewDestination.destinationPath);
 
   const moved =
-    existingMediaFile
-      ? {
-          sourcePath: existingMediaFile.sourcePath,
-          library: existingMediaFile.plexLibrary,
-          destinationPath: existingMediaFile.destinationPath,
-          seasonNumber: existingMediaFile.seasonNumber,
-          episodeNumber: existingMediaFile.episodeNumber,
-        }
-      : destinationAlreadyExists
-        ? previewDestination
-        : await moveIntoPlexLibrary({
-            title: downloadJob.request.title,
-            year: downloadJob.request.year,
-            mediaType: downloadJob.request.mediaType,
-            sourcePath: resolvedDownloadPath,
-          });
+    downloadJob.request.mediaType === MediaType.SHOW
+      ? await moveShowEpisodesIntoPlexLibrary({
+          title: downloadJob.request.title,
+          year: downloadJob.request.year,
+          sourcePath: resolvedDownloadPath,
+        })
+      : existingMediaFile
+        ? [
+            {
+              sourcePath: existingMediaFile.sourcePath,
+              library: existingMediaFile.plexLibrary,
+              destinationPath: existingMediaFile.destinationPath,
+              seasonNumber: existingMediaFile.seasonNumber,
+              episodeNumber: existingMediaFile.episodeNumber,
+              status: existingMediaFile.status,
+            },
+          ]
+        : destinationAlreadyExists
+          ? [
+              {
+                sourcePath: previewDestination.sourcePath,
+                library: previewDestination.library,
+                destinationPath: previewDestination.destinationPath,
+                seasonNumber: previewDestination.seasonNumber,
+                episodeNumber: previewDestination.episodeNumber,
+                status: MediaFileStatus.MOVED,
+              },
+            ]
+          : [
+              {
+                ...(await moveIntoPlexLibrary({
+                  title: downloadJob.request.title,
+                  year: downloadJob.request.year,
+                  mediaType: downloadJob.request.mediaType,
+                  sourcePath: resolvedDownloadPath,
+                })),
+                status: MediaFileStatus.MOVED,
+              },
+            ];
 
   let torrentRemovalWarning: string | null = null;
 
@@ -1387,37 +1470,42 @@ export async function postProcessDownload(downloadJobId: string) {
     });
   }
 
-  if (existingMediaFile) {
+  if (downloadJob.request.mediaType !== MediaType.SHOW && existingMediaFile && moved.length === 1) {
+    const single = moved[0];
     await prisma.mediaFile.update({
       where: { id: existingMediaFile.id },
       data: {
-        plexLibrary: moved.library,
+        plexLibrary: single.library,
         title: downloadJob.request.title,
         year: downloadJob.request.year,
-        seasonNumber: moved.seasonNumber ?? undefined,
-        episodeNumber: moved.episodeNumber ?? undefined,
+        seasonNumber: single.seasonNumber ?? undefined,
+        episodeNumber: single.episodeNumber ?? undefined,
         tmdbId: downloadJob.request.tmdbId,
-        sourcePath: moved.sourcePath,
-        destinationPath: moved.destinationPath,
-        status: MediaFileStatus.MOVED,
+        sourcePath: single.sourcePath,
+        destinationPath: single.destinationPath,
+        status: single.status,
       },
     });
   } else {
-    await prisma.mediaFile.create({
-      data: {
+    await prisma.mediaFile.deleteMany({
+      where: { downloadJobId: downloadJob.id },
+    });
+
+    await prisma.mediaFile.createMany({
+      data: moved.map((entry) => ({
         requestId: downloadJob.request.id,
         downloadJobId: downloadJob.id,
         mediaType: downloadJob.request.mediaType,
-        plexLibrary: moved.library,
+        plexLibrary: entry.library,
         title: downloadJob.request.title,
-        year: downloadJob.request.year,
-        seasonNumber: moved.seasonNumber ?? undefined,
-        episodeNumber: moved.episodeNumber ?? undefined,
-        tmdbId: downloadJob.request.tmdbId,
-        sourcePath: moved.sourcePath,
-        destinationPath: moved.destinationPath,
-        status: MediaFileStatus.MOVED,
-      },
+        year: downloadJob.request.year ?? undefined,
+        seasonNumber: entry.seasonNumber ?? undefined,
+        episodeNumber: entry.episodeNumber ?? undefined,
+        tmdbId: downloadJob.request.tmdbId ?? undefined,
+        sourcePath: entry.sourcePath,
+        destinationPath: entry.destinationPath,
+        status: entry.status,
+      })),
     });
   }
 
@@ -1471,7 +1559,7 @@ export async function getDownloadFeed() {
   const jobs = await prisma.downloadJob.findMany({
     where: {
       status: {
-        in: VISIBLE_DOWNLOAD_FEED_STATUSES,
+        in: ACTIVE_DOWNLOAD_STATUSES,
       },
     },
     orderBy: [{ progress: "desc" }, { updatedAt: "desc" }],

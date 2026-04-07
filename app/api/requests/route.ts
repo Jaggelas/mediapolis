@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { MediaType, RequestStatus } from "@/src/generated/prisma/enums";
+import { MediaType, RequestScope, RequestStatus } from "@/src/generated/prisma/enums";
 import { prisma } from "@/src/lib/db";
 import { debugError, debugLog, debugWarn } from "@/src/lib/debug-log";
 import { createMediaRequest } from "@/src/lib/request-service";
@@ -11,6 +11,8 @@ const createRequestSchema = z.object({
   mediaType: z.nativeEnum(MediaType),
   year: z.number().int().min(1900).max(2100).optional(),
   notes: z.string().optional(),
+  scope: z.nativeEnum(RequestScope).optional(),
+  seasonNumber: z.number().int().min(1).max(200).optional(),
 });
 
 export const runtime = "nodejs";
@@ -75,9 +77,34 @@ export async function POST(request: Request) {
     );
   }
 
+  const scope = payload.data.scope ?? RequestScope.TITLE;
+
+  if (payload.data.mediaType === MediaType.MOVIE) {
+    if (scope !== RequestScope.TITLE || payload.data.seasonNumber) {
+      return NextResponse.json(
+        { error: "Movie requests only support title scope." },
+        { status: 400 },
+      );
+    }
+  } else {
+    if (scope === RequestScope.SEASON && !payload.data.seasonNumber) {
+      return NextResponse.json(
+        { error: "Season requests require a season number." },
+        { status: 400 },
+      );
+    }
+    if (scope !== RequestScope.SEASON && payload.data.seasonNumber) {
+      return NextResponse.json(
+        { error: "seasonNumber is only allowed for season-scoped show requests." },
+        { status: 400 },
+      );
+    }
+  }
+
   try {
     const created = await createMediaRequest({
       ...payload.data,
+      scope,
       userId: session.sub,
     });
 

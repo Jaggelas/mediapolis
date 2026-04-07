@@ -1,6 +1,6 @@
 import { copyFile, mkdir, readdir, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
-import { MediaType, PlexLibraryType } from "@/src/generated/prisma/enums";
+import { MediaFileStatus, MediaType, PlexLibraryType } from "@/src/generated/prisma/enums";
 import { getEnv } from "@/src/lib/env";
 import { inferEpisode } from "@/src/lib/title-utils";
 
@@ -82,6 +82,15 @@ export async function resolveMediaSourcePath(input: OrganizerInput) {
   return videoFiles.sort((left, right) => right.size - left.size)[0].filePath;
 }
 
+export type OrganizedMediaFile = {
+  library: PlexLibraryType;
+  destinationPath: string;
+  seasonNumber: number | null;
+  episodeNumber: number | null;
+  sourcePath: string;
+  status: MediaFileStatus;
+};
+
 export function buildDestinationPath(input: OrganizerInput) {
   const env = getEnv();
   const safeTitle = sanitizeSegment(input.title);
@@ -121,6 +130,37 @@ export function buildDestinationPath(input: OrganizerInput) {
   };
 }
 
+function buildShowEpisodeDestinationPath(input: {
+  title: string;
+  year?: number | null;
+  filePath: string;
+  episode: { seasonNumber: number; episodeNumber: number } | null;
+}) {
+  const env = getEnv();
+  const safeTitle = sanitizeSegment(input.title);
+  const normalizedSourcePath = normalizeSourcePath(input.filePath);
+  const extension = path.extname(normalizedSourcePath);
+  const showFolder = input.year ? `${safeTitle} (${input.year})` : safeTitle;
+
+  const seasonNumber = input.episode?.seasonNumber ?? 0;
+  const episodeNumber = input.episode?.episodeNumber ?? 0;
+  const episodeLabel = `s${String(seasonNumber).padStart(2, "0")}e${String(episodeNumber).padStart(2, "0")}`;
+  const status = input.episode ? MediaFileStatus.MOVED : MediaFileStatus.NEEDS_REVIEW;
+
+  return {
+    library: PlexLibraryType.TV,
+    destinationPath: path.join(
+      env.PLEX_TV_DIR,
+      showFolder,
+      `Season ${String(seasonNumber).padStart(2, "0")}`,
+      `${showFolder} - ${episodeLabel}${extension}`,
+    ),
+    seasonNumber: input.episode?.seasonNumber ?? null,
+    episodeNumber: input.episode?.episodeNumber ?? null,
+    status,
+  } satisfies Omit<OrganizedMediaFile, "sourcePath">;
+}
+
 export async function resolveDestinationPath(input: OrganizerInput) {
   const sourcePath = await resolveMediaSourcePath(input);
   return {
@@ -144,4 +184,55 @@ export async function moveIntoPlexLibrary(input: OrganizerInput) {
   }
 
   return destination;
+}
+
+export async function moveShowEpisodesIntoPlexLibrary(input: {
+  title: string;
+  year?: number | null;
+  sourcePath: string;
+}) {
+  const normalizedSourcePath = normalizeSourcePath(input.sourcePath);
+  const sourceStats = await stat(normalizedSourcePath);
+
+  const videoFiles = sourceStats.isFile()
+    ? [{ filePath: normalizedSourcePath, size: sourceStats.size }]
+    : sourceStats.isDirectory()
+      ? await collectVideoFiles(normalizedSourcePath)
+      : [];
+
+  if (videoFiles.length === 0) {
+    throw new Error(`No playable media file found in ${normalizedSourcePath}`);
+  }
+
+  const sortedFiles = videoFiles
+    .sort((left, right) => right.size - left.size)
+    .map(({ filePath }) => filePath);
+
+  const moved: OrganizedMediaFile[] = [];
+
+  for (const filePath of sortedFiles) {
+    const episode = inferEpisode(filePath);
+    const destination = buildShowEpisodeDestinationPath({
+      title: input.title,
+      year: input.year,
+      filePath,
+      episode,
+    });
+
+    await mkdir(path.dirname(destination.destinationPath), { recursive: true });
+
+    try {
+      await rename(filePath, destination.destinationPath);
+    } catch {
+      await copyFile(filePath, destination.destinationPath);
+      await unlink(filePath);
+    }
+
+    moved.push({
+      ...destination,
+      sourcePath: filePath,
+    });
+  }
+
+  return moved;
 }

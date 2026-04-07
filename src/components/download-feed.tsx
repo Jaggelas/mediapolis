@@ -65,7 +65,7 @@ export function DownloadFeed({ initialItems }: { initialItems: DownloadFeedItem[
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
               <h3 className="text-lg font-semibold text-white">{item.title}</h3>
-              <p className="mt-1 break-all text-sm text-slate-400">
+              <p className="mt-1 break-all text-sm text-slate-400 hidden sm:block">
                 {item.path ?? "Waiting for qBittorrent path"}
               </p>
               {item.errorMessage ? (

@@ -112,18 +112,16 @@ export default async function RequestsPage() {
                         <StatusPill value={request.status} />
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-400">
-                        <span>{request.requestedBy.displayName}</span>
+                        <span className="hidden sm:inline">{request.requestedBy.displayName}</span>
                         <span className="hidden h-1 w-1 rounded-full bg-slate-600 sm:inline-block" />
                         <span>{formatRelativeDate(request.createdAt)}</span>
                         <span className="hidden h-1 w-1 rounded-full bg-slate-600 sm:inline-block" />
-                        <span className="font-medium text-sky-200">
-                          {getRequestConfidenceLabel(request)}
-                        </span>
+                        <span className="hidden sm:inline font-medium text-sky-200">{getRequestConfidenceLabel(request)}</span>
                       </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                      <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-300">
+                      <div className="hidden sm:block rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-300">
                         {request.candidates.length} candidates
                       </div>
                       {getLatestDownload(request) ? (
@@ -132,7 +130,7 @@ export default async function RequestsPage() {
                         </div>
                       ) : null}
                       <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/35 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-300">
-                        <span>Expand</span>
+                        <span className="hidden sm:inline">Expand</span>
                         <ChevronDown className="h-3.5 w-3.5 transition group-open:rotate-180" />
                       </div>
                     </div>
@@ -141,7 +139,7 @@ export default async function RequestsPage() {
 
                 <div className="border-t border-white/8 px-4 pb-4 pt-4 sm:px-5">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-sm text-slate-400">
+                    <div className="hidden sm:block text-sm text-slate-400">
                       Review AI notes, download progress, and candidate matches only when needed.
                     </div>
                     {canCancel(request.status) ? (
@@ -182,11 +180,11 @@ export default async function RequestsPage() {
                         />
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-                        <span>{formatBytes(getLatestDownload(request)?.bytesDownloaded ?? 0)}</span>
-                        <span>/</span>
-                        <span>{formatBytes(getLatestDownload(request)?.bytesTotal)}</span>
+                        <span className="hidden sm:inline">{formatBytes(getLatestDownload(request)?.bytesDownloaded ?? 0)}</span>
+                        <span className="hidden sm:inline">/</span>
+                        <span className="hidden sm:inline">{formatBytes(getLatestDownload(request)?.bytesTotal)}</span>
                         <span className="hidden h-1 w-1 rounded-full bg-slate-600 sm:inline-block" />
-                        <span>{getLatestDownload(request)?.status ?? "DOWNLOADING"}</span>
+                        <span className="hidden sm:inline">{getLatestDownload(request)?.status ?? "DOWNLOADING"}</span>
                       </div>
                       {getLatestDownload(request)?.errorMessage ? (
                         <p className="mt-2 text-xs text-rose-300">{getLatestDownload(request)?.errorMessage}</p>
@@ -215,13 +213,13 @@ export default async function RequestsPage() {
                               <StatusPill value={candidate.status} />
                             </div>
                             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-400">
-                              <span>{formatBytes(candidate.sizeBytes)}</span>
-                              <span>{candidate.seeders ?? 0} seeders</span>
                               <span className="font-medium text-sky-200">
                                 {Math.round((candidate.confidence ?? 0) * 100)}% match
                               </span>
+                              <span className="hidden sm:inline">{formatBytes(candidate.sizeBytes)}</span>
+                              <span className="hidden sm:inline">{candidate.seeders ?? 0} seeders</span>
                             </div>
-                            <p className="mt-2 wrap-break-word text-sm text-slate-500">
+                            <p className="mt-2 wrap-break-word text-sm text-slate-500 hidden sm:block">
                               {candidate.reason}
                             </p>
                           </div>

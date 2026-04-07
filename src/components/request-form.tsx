@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { debugError, debugLog } from "@/src/lib/debug-log";
+import { MediaType, RequestScope } from "@/src/generated/prisma/enums";
 
 type RequestFormProps = {
   onSuccess?: () => void;
@@ -14,16 +15,32 @@ export function RequestForm({ onSuccess, surface = "card" }: RequestFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [mediaType, setMediaType] = useState<MediaType>(MediaType.MOVIE);
+  const [scope, setScope] = useState<RequestScope>(RequestScope.TITLE);
 
   async function onSubmit(formData: FormData) {
     setLoading(true);
     setError("");
 
+    const mediaType = String(formData.get("mediaType") ?? "") as MediaType;
+    const scope = (formData.get("scope") ? String(formData.get("scope")) : undefined) as
+      | RequestScope
+      | undefined;
+    const seasonNumberRaw = formData.get("seasonNumber");
+    const seasonNumber =
+      seasonNumberRaw && String(seasonNumberRaw).trim()
+        ? Number(seasonNumberRaw)
+        : undefined;
+
     const payload = {
       title: formData.get("title"),
-      mediaType: formData.get("mediaType"),
+      mediaType,
       year: formData.get("year") ? Number(formData.get("year")) : undefined,
       notes: formData.get("notes"),
+      ...(mediaType === MediaType.SHOW ? { scope: scope ?? RequestScope.TITLE } : {}),
+      ...(mediaType === MediaType.SHOW && (scope ?? RequestScope.TITLE) === RequestScope.SEASON
+        ? { seasonNumber }
+        : {}),
     };
 
     debugLog("request-form", "Submitting media request", payload);
@@ -53,6 +70,8 @@ export function RequestForm({ onSuccess, surface = "card" }: RequestFormProps) {
 
       debugLog("request-form", "Media request created successfully");
       formRef.current?.reset();
+      setMediaType(MediaType.MOVIE);
+      setScope(RequestScope.TITLE);
       router.refresh();
       onSuccess?.();
     } catch (error) {
@@ -98,10 +117,17 @@ export function RequestForm({ onSuccess, surface = "card" }: RequestFormProps) {
           <select
             name="mediaType"
             className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none"
-            defaultValue="MOVIE"
+            value={mediaType}
+            onChange={(event) => {
+              const nextType = event.target.value as MediaType;
+              setMediaType(nextType);
+              if (nextType === MediaType.MOVIE) {
+                setScope(RequestScope.TITLE);
+              }
+            }}
           >
-            <option value="MOVIE">Movie</option>
-            <option value="SHOW">TV show</option>
+            <option value={MediaType.MOVIE}>Movie</option>
+            <option value={MediaType.SHOW}>TV show</option>
           </select>
         </label>
         <label className="grid gap-2 text-sm text-slate-300">
@@ -116,6 +142,42 @@ export function RequestForm({ onSuccess, surface = "card" }: RequestFormProps) {
           />
         </label>
       </div>
+
+      {mediaType === MediaType.SHOW ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="grid gap-2 text-sm text-slate-300">
+            Request scope
+            <select
+              name="scope"
+              className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none"
+              value={scope}
+              onChange={(event) => setScope(event.target.value as RequestScope)}
+            >
+              <option value={RequestScope.TITLE}>Single title</option>
+              <option value={RequestScope.SEASON}>Whole season</option>
+              <option value={RequestScope.SERIES}>Whole series</option>
+            </select>
+          </label>
+
+          {scope === RequestScope.SEASON ? (
+            <label className="grid gap-2 text-sm text-slate-300">
+              Season number
+              <input
+                name="seasonNumber"
+                type="number"
+                min="1"
+                max="200"
+                placeholder="Example: 1"
+                required
+                className="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none placeholder:text-slate-500"
+              />
+            </label>
+          ) : (
+            <div />
+          )}
+        </div>
+      ) : null}
+
       <label className="grid gap-2 text-sm text-slate-300">
         Notes
         <textarea
