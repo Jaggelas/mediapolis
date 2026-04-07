@@ -1366,10 +1366,12 @@ export async function postProcessDownload(downloadJobId: string) {
     return null;
   }
 
-  if (downloadJob.request.status === RequestStatus.CANCELLED) {
+  const request = downloadJob.request;
+
+  if (request.status === RequestStatus.CANCELLED) {
     debugLog("request-service", "Post-processing skipped because request is cancelled", {
       downloadJobId,
-      requestId: downloadJob.request.id,
+      requestId: request.id,
     });
     return null;
   }
@@ -1397,9 +1399,9 @@ export async function postProcessDownload(downloadJobId: string) {
   }
 
   const previewDestination = await resolveDestinationPath({
-    title: downloadJob.request.title,
-    year: downloadJob.request.year,
-    mediaType: downloadJob.request.mediaType,
+    title: request.title,
+    year: request.year,
+    mediaType: request.mediaType,
     sourcePath: resolvedDownloadPath,
   });
 
@@ -1407,10 +1409,10 @@ export async function postProcessDownload(downloadJobId: string) {
   const destinationAlreadyExists = await pathExists(previewDestination.destinationPath);
 
   const moved =
-    downloadJob.request.mediaType === MediaType.SHOW
+    request.mediaType === MediaType.SHOW
       ? await moveShowEpisodesIntoPlexLibrary({
-          title: downloadJob.request.title,
-          year: downloadJob.request.year,
+          title: request.title,
+          year: request.year,
           sourcePath: resolvedDownloadPath,
         })
       : existingMediaFile
@@ -1438,9 +1440,9 @@ export async function postProcessDownload(downloadJobId: string) {
           : [
               {
                 ...(await moveIntoPlexLibrary({
-                  title: downloadJob.request.title,
-                  year: downloadJob.request.year,
-                  mediaType: downloadJob.request.mediaType,
+                  title: request.title,
+                  year: request.year,
+                  mediaType: request.mediaType,
                   sourcePath: resolvedDownloadPath,
                 })),
                 status: MediaFileStatus.MOVED,
@@ -1451,7 +1453,7 @@ export async function postProcessDownload(downloadJobId: string) {
 
   try {
     await removeCompletedDownloadTorrent({
-      requestId: downloadJob.request.id,
+      requestId: request.id,
       qbCategory: downloadJob.qbCategory,
       qbTorrentHash: downloadJob.qbTorrentHash,
     });
@@ -1465,22 +1467,22 @@ export async function postProcessDownload(downloadJobId: string) {
     );
     debugWarn("request-service", "qBittorrent cleanup after post-processing failed", {
       downloadJobId,
-      requestId: downloadJob.request.id,
+      requestId: request.id,
       warning: torrentRemovalWarning,
     });
   }
 
-  if (downloadJob.request.mediaType !== MediaType.SHOW && existingMediaFile && moved.length === 1) {
+  if (request.mediaType !== MediaType.SHOW && existingMediaFile && moved.length === 1) {
     const single = moved[0];
     await prisma.mediaFile.update({
       where: { id: existingMediaFile.id },
       data: {
         plexLibrary: single.library,
-        title: downloadJob.request.title,
-        year: downloadJob.request.year,
+        title: request.title,
+        year: request.year,
         seasonNumber: single.seasonNumber ?? undefined,
         episodeNumber: single.episodeNumber ?? undefined,
-        tmdbId: downloadJob.request.tmdbId,
+        tmdbId: request.tmdbId,
         sourcePath: single.sourcePath,
         destinationPath: single.destinationPath,
         status: single.status,
@@ -1493,15 +1495,15 @@ export async function postProcessDownload(downloadJobId: string) {
 
     await prisma.mediaFile.createMany({
       data: moved.map((entry) => ({
-        requestId: downloadJob.request.id,
+        requestId: request.id,
         downloadJobId: downloadJob.id,
-        mediaType: downloadJob.request.mediaType,
+        mediaType: request.mediaType,
         plexLibrary: entry.library,
-        title: downloadJob.request.title,
-        year: downloadJob.request.year ?? undefined,
+        title: request.title,
+        year: request.year ?? undefined,
         seasonNumber: entry.seasonNumber ?? undefined,
         episodeNumber: entry.episodeNumber ?? undefined,
-        tmdbId: downloadJob.request.tmdbId ?? undefined,
+        tmdbId: request.tmdbId ?? undefined,
         sourcePath: entry.sourcePath,
         destinationPath: entry.destinationPath,
         status: entry.status,
@@ -1518,7 +1520,7 @@ export async function postProcessDownload(downloadJobId: string) {
   });
 
   await prisma.mediaRequest.update({
-    where: { id: downloadJob.request.id },
+    where: { id: request.id },
     data: {
       status: RequestStatus.COMPLETED,
     },
@@ -1526,7 +1528,7 @@ export async function postProcessDownload(downloadJobId: string) {
 
   debugLog("request-service", "Post-processing completed", {
     downloadJobId,
-    requestId: downloadJob.request.id,
+    requestId: request.id,
     destination: previewDestination.destinationPath,
     torrentRemovalWarning,
   });

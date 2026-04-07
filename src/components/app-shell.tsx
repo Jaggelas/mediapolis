@@ -39,30 +39,30 @@ export function AppShell({
             </div>
 
             <div className="flex flex-col gap-3 xl:items-end">
-              <nav className="flex snap-x items-center gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-slate-950/30 p-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-visible">
+              <nav className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-slate-950/30 p-1.5 sm:flex sm:snap-x sm:items-center sm:gap-2 sm:overflow-x-auto sm:[-ms-overflow-style:none] sm:[scrollbar-width:none] sm:[&::-webkit-scrollbar]:hidden xl:flex-wrap xl:overflow-visible">
                 <NavLink href="/dashboard">
                   <LayoutDashboard className="h-4 w-4 shrink-0" />
-                  Dashboard
+                  <span className="sr-only sm:not-sr-only">Dashboard</span>
                 </NavLink>
                 <NavLink href="/requests">
                   <Film className="h-4 w-4 shrink-0" />
-                  Requests
+                  <span className="sr-only sm:not-sr-only">Requests</span>
                 </NavLink>
                 <NavLink href="/browse">
                   <Compass className="h-4 w-4 shrink-0" />
-                  Browse
+                  <span className="sr-only sm:not-sr-only">Browse</span>
                 </NavLink>
                 <NavLink href="/downloads">
                   <TimerReset className="h-4 w-4 shrink-0" />
-                  Downloads
+                  <span className="sr-only sm:not-sr-only">Downloads</span>
                 </NavLink>
                 <NavLink href="/history">
                   <History className="h-4 w-4 shrink-0" />
-                  History
+                  <span className="sr-only sm:not-sr-only">History</span>
                 </NavLink>
                 <NavLink href="/settings">
                   <Settings className="h-4 w-4 shrink-0" />
-                  Settings
+                  <span className="sr-only sm:not-sr-only">Settings</span>
                 </NavLink>
               </nav>
 
