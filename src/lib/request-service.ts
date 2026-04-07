@@ -134,6 +134,33 @@ function isQbittorrentFailureState(state: string) {
   return normalizedState.includes("error") || normalizedState.includes("missingfiles");
 }
 
+function mapQbittorrentStateToFeedStatus(input: { state: string; progress: number }) {
+  const normalizedState = input.state.toLowerCase();
+
+  if (isQbittorrentFailureState(normalizedState)) {
+    return DownloadStatus.FAILED;
+  }
+
+  if (
+    input.progress >= 1 ||
+    normalizedState.includes("upload") ||
+    normalizedState.includes("pausedup") ||
+    normalizedState.includes("stalledup")
+  ) {
+    return DownloadStatus.COMPLETED;
+  }
+
+  if (
+    normalizedState.includes("queued") ||
+    normalizedState.includes("meta") ||
+    normalizedState.includes("check")
+  ) {
+    return DownloadStatus.QUEUED;
+  }
+
+  return DownloadStatus.DOWNLOADING;
+}
+
 function normalizeResolutionPreference(input?: string | null): ResolutionPreference | undefined {
   if (!input) {
     return undefined;
@@ -1558,28 +1585,26 @@ export async function getDashboardSnapshot() {
 }
 
 export async function getDownloadFeed() {
-  const jobs = await prisma.downloadJob.findMany({
-    where: {
-      status: {
-        in: ACTIVE_DOWNLOAD_STATUSES,
-      },
-    },
-    orderBy: [{ progress: "desc" }, { updatedAt: "desc" }],
-    take: 20,
-    include: {
-      request: true,
-    },
-  });
+  const torrents = await listQbittorrentTorrents();
+  const appTorrents = torrents.filter((torrent) => torrent.category?.startsWith("request-"));
 
-  return jobs
-    .map((job) => ({
-      id: job.id,
-      title: job.request?.title ?? job.inputName ?? "Unknown download",
-      status: job.status,
-      progress: job.progress ?? 0,
-      updatedAt: job.updatedAt.toISOString(),
-      path: job.downloadPath,
-      errorMessage: job.errorMessage,
+  return appTorrents
+    .map((torrent) => ({
+      id: torrent.hash,
+      title: torrent.name || "Unknown download",
+      status: mapQbittorrentStateToFeedStatus({
+        state: torrent.state,
+        progress: torrent.progress ?? 0,
+      }),
+      progress: torrent.progress ?? 0,
+      updatedAt: new Date().toISOString(),
+      path: translateHostDownloadPathToContainer(
+        torrent.content_path?.trim() ||
+          path.posix.join(normalizeContainerPath(torrent.save_path), torrent.name),
+      ),
+      errorMessage: isQbittorrentFailureState(torrent.state)
+        ? `qBittorrent reported torrent state "${torrent.state}".`
+        : null,
     }))
     .sort((left, right) => {
       if (right.progress !== left.progress) {
