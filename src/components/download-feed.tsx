@@ -6,6 +6,7 @@ import { formatPercent } from "@/src/lib/utils";
 
 type DownloadFeedItem = {
   id: string;
+  requestId?: string | null;
   title: string;
   status: string;
   progress: number;
@@ -34,6 +35,31 @@ function sortDownloadFeedItems(items: DownloadFeedItem[]) {
 
 export function DownloadFeed({ initialItems }: { initialItems: DownloadFeedItem[] }) {
   const [items, setItems] = useState(() => sortDownloadFeedItems(initialItems));
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function cancelDownload(itemId: string) {
+    setActionError(null);
+    setCancellingId(itemId);
+
+    try {
+      const response = await fetch(`/api/downloads/${encodeURIComponent(itemId)}/cancel`, {
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Failed to cancel the download.");
+      }
+
+      setItems((previousItems) => previousItems.filter((item) => item.id !== itemId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unexpected cancel error.";
+      setActionError(message);
+    } finally {
+      setCancellingId(null);
+    }
+  }
 
   useEffect(() => {
     const source = new EventSource("/api/stream/downloads");
@@ -57,6 +83,11 @@ export function DownloadFeed({ initialItems }: { initialItems: DownloadFeedItem[
           No qBittorrent downloads are currently visible for Mediapolis.
         </div>
       ) : null}
+      {actionError ? (
+        <div className="rounded-2xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+          {actionError}
+        </div>
+      ) : null}
       {items.map((item) => (
         <article
           key={item.id}
@@ -72,7 +103,17 @@ export function DownloadFeed({ initialItems }: { initialItems: DownloadFeedItem[
                 <p className="mt-2 text-sm text-rose-300">{item.errorMessage}</p>
               ) : null}
             </div>
-            <StatusPill value={item.status} />
+            <div className="flex items-center gap-2">
+              <StatusPill value={item.status} />
+              <button
+                type="button"
+                onClick={() => cancelDownload(item.id)}
+                disabled={cancellingId === item.id}
+                className="rounded-full border border-rose-400/25 bg-rose-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-200 transition hover:border-rose-400/35 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-60 sm:text-xs"
+              >
+                {cancellingId === item.id ? "Cancelling..." : "Cancel"}
+              </button>
+            </div>
           </div>
           <div className="mt-4">
             <div className="flex items-center justify-between text-sm text-slate-300">

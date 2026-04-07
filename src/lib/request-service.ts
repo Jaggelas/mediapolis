@@ -92,6 +92,21 @@ function buildQbCategory(requestId: string) {
   return `request-${requestId}`;
 }
 
+function extractRequestIdFromQbCategory(category?: string | null) {
+  if (!category) {
+    return null;
+  }
+
+  const normalizedCategory = category.trim();
+
+  if (!normalizedCategory.startsWith("request-")) {
+    return null;
+  }
+
+  const requestId = normalizedCategory.slice("request-".length).trim();
+  return requestId || null;
+}
+
 function buildNextSearchAt(searchIntervalMinutes: number) {
   return new Date(Date.now() + searchIntervalMinutes * 60 * 1000);
 }
@@ -1084,6 +1099,84 @@ export async function removeDownloadedMovieFromDisk(requestId: string, userId: s
   return request;
 }
 
+export async function cancelDownloadFromFeed(input: {
+  torrentHash: string;
+  userId: string;
+  deleteFiles?: boolean;
+}) {
+  const torrentHash = input.torrentHash.trim();
+
+  if (!torrentHash) {
+    throw new Error("A torrent hash is required.");
+  }
+
+  const torrent = await getQbittorrentTorrent(torrentHash);
+
+  if (!torrent) {
+    throw new Error("This torrent is no longer present in qBittorrent.");
+  }
+
+  const requestId = extractRequestIdFromQbCategory(torrent.category);
+  const linkedRequest = requestId
+    ? await prisma.mediaRequest.findUnique({
+        where: { id: requestId },
+        select: { id: true, status: true },
+      })
+    : null;
+
+  // Active requests should use the existing cancellation flow so all related
+  // records and torrents are updated consistently.
+  if (
+    linkedRequest &&
+    linkedRequest.status !== RequestStatus.CANCELLED &&
+    linkedRequest.status !== RequestStatus.COMPLETED
+  ) {
+    await cancelMediaRequest(linkedRequest.id, input.userId);
+    return {
+      requestId: linkedRequest.id,
+      mode: "request-cancelled" as const,
+    };
+  }
+
+  await removeQbittorrentTorrents({
+    hashes: [torrentHash],
+    deleteFiles: input.deleteFiles !== false,
+  });
+
+  await prisma.downloadJob.updateMany({
+    where: {
+      qbTorrentHash: torrentHash,
+      status: {
+        in: ACTIVE_DOWNLOAD_STATUSES,
+      },
+    },
+    data: {
+      status: DownloadStatus.CANCELLED,
+      completedAt: new Date(),
+      errorMessage: "Cancelled from downloads page.",
+    },
+  });
+
+  await createAuditLog({
+    userId: input.userId,
+    requestId: linkedRequest?.id,
+    action: "download.cancelled.from_feed",
+    entityType: "DownloadJob",
+    entityId: torrentHash,
+    details: {
+      torrentHash,
+      requestId: linkedRequest?.id ?? null,
+      deleteFiles: input.deleteFiles !== false,
+      qbCategory: torrent.category,
+    },
+  });
+
+  return {
+    requestId: linkedRequest?.id ?? null,
+    mode: "torrent-removed" as const,
+  };
+}
+
 export async function createManualDownload(input: {
   userId: string;
   magnetUri?: string;
@@ -1636,6 +1729,7 @@ export async function getDownloadFeed() {
   return appTorrents
     .map((torrent) => ({
       id: torrent.hash,
+      requestId: extractRequestIdFromQbCategory(torrent.category),
       title: torrent.name || "Unknown download",
       status: mapQbittorrentStateToFeedStatus({
         state: torrent.state,
